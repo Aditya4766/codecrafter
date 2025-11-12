@@ -1,13 +1,49 @@
+
 "use client";
 
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { problems } from "@/lib/problems";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 
+// A mock authentication check
+const useMockAuth = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // In a real app, you'd check a token, a cookie, or make an API call.
+    // Here, we'll use sessionStorage to simulate a logged-in state for the demo.
+    const loggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
+    setIsAuthenticated(loggedIn);
+    setIsLoading(false);
+  }, []);
+
+  return { isAuthenticated, isLoading };
+};
+
 export default function ProblemsPage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useMockAuth();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push('/login');
+    }
+  }, [isLoading, isAuthenticated, router]);
+
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto py-8 px-4">
       <h1 className="text-3xl font-bold mb-8 font-headline">Practice Problems</h1>

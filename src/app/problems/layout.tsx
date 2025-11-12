@@ -1,3 +1,6 @@
+
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Code, LogOut } from "lucide-react";
@@ -10,12 +13,20 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
   } from "@/components/ui/dropdown-menu"
+import { useRouter } from "next/navigation";
 
 export default function ProblemsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('isLoggedIn');
+    router.push('/');
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
       <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 sm:px-6">
@@ -43,11 +54,9 @@ export default function ProblemsLayout({
                         </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <Link href="/">
-                            <LogOut className="mr-2 h-4 w-4" />
-                            <span>Log out</span>
-                        </Link>
+                    <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+                        <LogOut className="mr-2 h-4 w-4" />
+                        <span>Log out</span>
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>

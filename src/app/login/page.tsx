@@ -1,11 +1,24 @@
+
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Code } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
+  const router = useRouter();
+
+  const handleLogin = () => {
+    // In a real app, you would perform authentication here.
+    // For this demo, we'll just set a flag in sessionStorage.
+    sessionStorage.setItem('isLoggedIn', 'true');
+    router.push('/problems');
+  };
+
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
       <Card className="mx-auto max-w-sm">
@@ -31,8 +44,8 @@ export default function LoginPage() {
               </div>
               <Input id="password" type="password" required />
             </div>
-            <Button type="submit" className="w-full" asChild>
-              <Link href="/problems">Login</Link>
+            <Button onClick={handleLogin} type="button" className="w-full">
+              Login
             </Button>
           </div>
           <div className="mt-4 text-center text-sm">
