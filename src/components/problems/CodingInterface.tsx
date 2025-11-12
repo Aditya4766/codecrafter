@@ -53,7 +53,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     };
 
     const handleRunCode = () => {
-        setOutput(`Running your code...\n\n// This is a simulated execution.\n// Actual output will vary based on your implementation.\n\nSample Output for input "test":\n${isClient ? Math.random() : 0}`);
+        setOutput(`Running your code...\n\n// This is a simulated execution.\n// Actual output will vary based on your implementation.\n\nSample Output for input "test":\n${Math.random()}`);
         setActiveTab("output");
     };
 
