@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
@@ -12,10 +13,11 @@ import { Play, Send, BrainCircuit, CheckCircle, XCircle, Loader2 } from "lucide-
 import { explainAndImproveCode } from "@/ai/flows/code-explanation-and-improvement";
 import { useToast } from "@/hooks/use-toast";
 import { generateTestCases } from "@/ai/flows/test-cases-generation";
+import { runCodeWithTests } from "@/ai/flows/run-code-with-tests";
 
 type Language = "python" | "java" | "cpp";
 
-type TestCase = {
+type TestCaseResult = {
     input: string;
     expectedOutput: string;
     actualOutput: string;
@@ -32,7 +34,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [language, setLanguage] = useState<Language>("python");
     const [code, setCode] = useState(problem.starterCode.python);
     const [output, setOutput] = useState("Click 'Run' to see the output of your code here.");
-    const [testResults, setTestResults] = useState<TestCase[]>([]);
+    const [testResults, setTestResults] = useState<TestCaseResult[]>([]);
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
 
@@ -53,7 +55,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     };
 
     const handleRunCode = () => {
-        setOutput(`Running your code...\n\n// This is a simulated execution.\n// Actual output will vary based on your implementation.\n\nSample Output for input "test":\n${Math.random()}`);
+        setOutput(`Running your code...\n\n// This is a simulated execution.\n// Actual output will vary based on your implementation.\n\nSample Output for input "test":\n${Math.random() > 0.5 ? 'Passed' : 'Failed'}`);
         setActiveTab("output");
     };
 
@@ -64,31 +66,52 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setAIFeedback(null);
             
             try {
+                // 1. Generate test cases
                 const { testCases: generatedCases } = await generateTestCases({
                     problemDescription: problem.description,
                     functionSignature: problem.functionSignature,
                 });
 
-                const results: TestCase[] = generatedCases.map(tc => ({
-                    ...tc,
-                    actualOutput: tc.expectedOutput, // Simulate passing
-                    passed: true,
-                }));
-                
-                if (results.length > 1 && isClient && Math.random() > 0.3) {
-                    const failIndex = Math.floor(Math.random() * results.length);
-                    results[failIndex].passed = false;
-                    results[failIndex].actualOutput = `[${Math.floor(Math.random() * 5)}, ${Math.floor(Math.random() * 5) + 5}]`;
+                if (!generatedCases || generatedCases.length === 0) {
+                    toast({
+                        variant: "destructive",
+                        title: "Submission Error",
+                        description: "Could not generate test cases for submission.",
+                    });
+                    return;
+                }
+
+                // 2. Run code with generated test cases
+                const { results, executionError } = await runCodeWithTests({
+                    code,
+                    language,
+                    problemDescription: problem.description,
+                    functionSignature: problem.functionSignature,
+                    testCases: generatedCases,
+                });
+
+                if (executionError) {
+                    toast({
+                        variant: "destructive",
+                        title: "Execution Error",
+                        description: executionError,
+                    });
+                    // Show error in output tab
+                    setOutput(`Execution Error:\n${executionError}`);
+                    setActiveTab("output");
+                    setTestResults([]); // Clear any partial results
+                    return;
                 }
 
                 setTestResults(results);
 
             } catch (error) {
-                console.error("Failed to generate test cases:", error);
+                console.error("Failed to submit code:", error);
+                const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
                 toast({
                     variant: "destructive",
                     title: "Submission Error",
-                    description: "Could not generate test cases for submission.",
+                    description: `Could not evaluate your code. ${errorMessage}`,
                 });
             }
         });
