@@ -1,3 +1,10 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-coding",
+      "description": "Abstract representation of code on a screen.",
+      "imageUrl": "https://images.unsplash.com/photo-1565106430482-8f6e74349ca1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw2fHxjb2RlJTIwYWJzdHJhY3R8ZW58MHx8fHwxNzYyOTE0NzE5fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "code abstract"
+    }
+  ]
 }
