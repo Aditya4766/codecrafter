@@ -30,6 +30,26 @@ type AIFeedback = {
     alternativeApproaches: string;
 };
 
+// Helper function for retrying promises
+const retry = <T,>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
+    return new Promise((resolve, reject) => {
+        const attempt = (n: number) => {
+            fn()
+                .then(resolve)
+                .catch(err => {
+                    if (n > 0 && (err.message.includes("503") || err.message.toLowerCase().includes("overloaded"))) {
+                        console.log(`AI service busy. Retrying in ${delay}ms... (${n} retries left)`);
+                        setTimeout(() => attempt(n - 1), delay);
+                    } else {
+                        reject(err);
+                    }
+                });
+        };
+        attempt(retries);
+    });
+};
+
+
 export default function CodingInterface({ problem }: { problem: Problem }) {
     const [language, setLanguage] = useState<Language>("python");
     const [code, setCode] = useState(problem.starterCode.python);
@@ -66,11 +86,11 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setAIFeedback(null);
             
             try {
-                // 1. Generate test cases
-                const { testCases: generatedCases } = await generateTestCases({
+                // 1. Generate test cases with retry logic
+                const { testCases: generatedCases } = await retry(() => generateTestCases({
                     problemDescription: problem.description,
                     functionSignature: problem.functionSignature,
-                });
+                }));
 
                 if (!generatedCases || generatedCases.length === 0) {
                     toast({
@@ -81,14 +101,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     return;
                 }
 
-                // 2. Run code with generated test cases
-                const { results, executionError } = await runCodeWithTests({
+                // 2. Run code with generated test cases with retry logic
+                const { results, executionError } = await retry(() => runCodeWithTests({
                     code,
                     language,
                     problemDescription: problem.description,
                     functionSignature: problem.functionSignature,
                     testCases: generatedCases,
-                });
+                }));
 
                 if (executionError) {
                     toast({
@@ -130,10 +150,10 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         startGeneratingFeedback(async () => {
             setActiveTab("ai-feedback");
             try {
-                const feedback = await explainAndImproveCode({
+                const feedback = await retry(() => explainAndImproveCode({
                     code: code,
                     language: language,
-                });
+                }));
                 setAIFeedback(feedback);
             } catch (error) {
                 console.error("Failed to get AI feedback:", error);
