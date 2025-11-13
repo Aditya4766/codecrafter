@@ -58,6 +58,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
 
+    const [isClient, setIsClient] = useState(false)
+
+    useEffect(() => {
+        setIsClient(true)
+    }, [])
+
     useEffect(() => {
         // On component mount, set the code for the default language
         setCode(problem.starterCode[language]);
@@ -75,6 +81,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     };
 
     const handleRunCode = () => {
+        if (!isClient) return;
         setOutput(`Running your code...\n\n// This is a simulated execution.\n// Actual output will vary based on your implementation.\n\nSample Output for input "test":\n${Math.random() > 0.5 ? 'Passed' : 'Failed'}`);
         setActiveTab("output");
     };
@@ -293,3 +300,5 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         </div>
     );
 }
+
+    
