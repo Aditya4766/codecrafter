@@ -38,10 +38,10 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
 
-    const [isClient, setIsClient] = useState(false);
     useEffect(() => {
-        setIsClient(true);
-    }, []);
+        // On component mount, set the code for the default language
+        setCode(problem.starterCode[language]);
+    }, [problem, language]);
 
     const [isSubmitting, startSubmitting] = useTransition();
     const [isGeneratingFeedback, startGeneratingFeedback] = useTransition();
@@ -108,11 +108,20 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             } catch (error) {
                 console.error("Failed to submit code:", error);
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-                toast({
-                    variant: "destructive",
-                    title: "Submission Error",
-                    description: `Could not evaluate your code. ${errorMessage}`,
-                });
+
+                if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
+                     toast({
+                        variant: "destructive",
+                        title: "AI Service Unavailable",
+                        description: "The AI service is currently busy. Please try again in a few moments.",
+                    });
+                } else {
+                    toast({
+                        variant: "destructive",
+                        title: "Submission Error",
+                        description: `Could not evaluate your code. ${errorMessage}`,
+                    });
+                }
             }
         });
     };
@@ -128,11 +137,20 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 setAIFeedback(feedback);
             } catch (error) {
                 console.error("Failed to get AI feedback:", error);
-                toast({
-                    variant: "destructive",
-                    title: "AI Feedback Error",
-                    description: "There was an issue generating AI feedback.",
-                });
+                const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+                 if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
+                     toast({
+                        variant: "destructive",
+                        title: "AI Service Unavailable",
+                        description: "The AI service is currently busy. Please try again in a few moments.",
+                    });
+                } else {
+                    toast({
+                        variant: "destructive",
+                        title: "AI Feedback Error",
+                        description: "There was an issue generating AI feedback.",
+                    });
+                }
             }
         });
     };
