@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
@@ -7,13 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Play, Send, BrainCircuit, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Play, Send, BrainCircuit, CheckCircle, XCircle, Loader2, Lightbulb } from "lucide-react";
 import { explainAndImproveCode } from "@/ai/flows/code-explanation-and-improvement";
 import { useToast } from "@/hooks/use-toast";
 import { generateTestCases } from "@/ai/flows/test-cases-generation";
 import { runCodeWithTests } from "@/ai/flows/run-code-with-tests";
+import { generateHint } from "@/ai/flows/generate-hint";
 
 type Language = "python" | "java" | "cpp";
 
@@ -71,6 +71,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     const [isSubmitting, startSubmitting] = useTransition();
     const [isGeneratingFeedback, startGeneratingFeedback] = useTransition();
+    const [isGeneratingHint, startGeneratingHint] = useTransition();
     
     const { toast } = useToast();
 
@@ -182,6 +183,42 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         });
     };
 
+    const handleGetHint = () => {
+        startGeneratingHint(async () => {
+            try {
+                const { hint } = await retry(() => generateHint({
+                    code: code,
+                    language: language,
+                    problemDescription: problem.description,
+                }));
+
+                if (hint) {
+                    setCode(prev => prev + "\n\n" + hint);
+                    toast({
+                        title: "Hint added",
+                        description: "Check your code editor for a new hint comment.",
+                    });
+                }
+            } catch (error) {
+                console.error("Failed to get hint:", error);
+                const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+                 if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
+                     toast({
+                        variant: "destructive",
+                        title: "AI Service Unavailable",
+                        description: "The AI service is currently busy. Please try again in a few moments.",
+                    });
+                } else {
+                    toast({
+                        variant: "destructive",
+                        title: "Hint Error",
+                        description: "There was an issue generating a hint.",
+                    });
+                }
+            }
+        });
+    };
+
     return (
         <div className="grid md:grid-cols-2 gap-4 p-4 h-[calc(100vh-4rem)]">
             <Card className="flex flex-col">
@@ -224,6 +261,10 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     <Button onClick={handleSubmitCode} disabled={isSubmitting} variant="outline">
                         {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                         Submit
+                    </Button>
+                    <Button onClick={handleGetHint} disabled={isGeneratingHint} variant="secondary">
+                        {isGeneratingHint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lightbulb className="mr-2 h-4 w-4" />}
+                        Get Hint
                     </Button>
                 </div>
                 
@@ -300,5 +341,3 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         </div>
     );
 }
-
-    
