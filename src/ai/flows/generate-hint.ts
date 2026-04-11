@@ -33,6 +33,8 @@ const prompt = ai.definePrompt({
   output: {schema: GenerateHintOutputSchema},
   prompt: `You are an expert coding tutor. 
 
+Analyze the user's current implementation carefully. 
+
 Problem Description:
 {{{problemDescription}}}
 
@@ -41,9 +43,13 @@ User's Current Code (Language: {{{language}}}):
 {{{code}}}
 \`\`\`
 
-Provide a short, helpful hint that guides the user towards the correct solution without giving away the full answer. 
-The hint MUST be formatted as a comment for the specified programming language (e.g., starting with # for Python or // for Java/C++).
-Do not provide the full solution. Just a small nudge to help them overcome their current hurdle.`,
+Your Task:
+1. Identify what the user has implemented correctly.
+2. Identify the immediate next logical step or a bug in their current approach.
+3. Provide a short, helpful hint that guides them specifically on their current path without giving away the full answer.
+4. The hint MUST be formatted as a comment for the specified programming language (e.g., starting with # for Python or // for Java/C++).
+
+Do not provide a generic hint. Make it specific to the code they have written.`,
 });
 
 const generateHintFlow = ai.defineFlow(

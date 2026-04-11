@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Play, Send, BrainCircuit, CheckCircle, XCircle, Loader2, Lightbulb } from "lucide-react";
+import { Play, Send, BrainCircuit, CheckCircle, XCircle, Loader2, Lightbulb, Zap } from "lucide-react";
 import { explainAndImproveCode } from "@/ai/flows/code-explanation-and-improvement";
 import { useToast } from "@/hooks/use-toast";
 import { generateTestCases } from "@/ai/flows/test-cases-generation";
@@ -26,8 +26,8 @@ type TestCaseResult = {
 
 type AIFeedback = {
     explanation: string;
-    improvementSuggestions: string;
-    alternativeApproaches: string;
+    optimalSolutionHint: string;
+    codeImprovements: string;
 };
 
 // Helper function for retrying promises with exponential backoff
@@ -135,6 +135,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 }
 
                 setTestResults(results);
+                
+                const allPassed = results.every(r => r.passed);
+                if (allPassed) {
+                  toast({
+                    title: "Success!",
+                    description: "All test cases passed. Check AI Feedback for the optimal solution hint!",
+                  });
+                }
 
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
@@ -155,7 +163,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     code: code,
                     language: language,
                 }));
-                setAIFeedback(feedback);
+                setAIFeedback(feedback as AIFeedback);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
                 toast({
@@ -179,8 +187,8 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 if (hint) {
                     setCode(prev => prev + "\n\n" + hint);
                     toast({
-                        title: "Hint added",
-                        description: "Check your code editor for a new hint comment.",
+                        title: "Specific Hint added",
+                        description: "Based on your current code, a new hint comment has been added.",
                     });
                 }
             } catch (error) {
@@ -239,12 +247,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     </Button>
                     <Button onClick={handleGetHint} disabled={isGeneratingHint} variant="secondary">
                         {isGeneratingHint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lightbulb className="mr-2 h-4 w-4" />}
-                        Get Hint
+                        Get Specific Hint
                     </Button>
                 </div>
                 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-grow flex flex-col">
-                    <TabsList>
+                    <TabsList className="grid grid-cols-3">
                         <TabsTrigger value="output">Console</TabsTrigger>
                         <TabsTrigger value="test-results" disabled={testResults.length === 0 && !isSubmitting}>Test Results</TabsTrigger>
                         <TabsTrigger value="ai-feedback" disabled={testResults.length === 0 || isSubmitting}>AI Feedback</TabsTrigger>
@@ -284,27 +292,36 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         <Card className="h-full">
                             <ScrollArea className="h-full p-4">
                                 {(!aiFeedback && !isGeneratingFeedback) && (
-                                     <div className="flex items-center justify-center h-full">
+                                     <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+                                        <div className="p-3 rounded-full bg-primary/10">
+                                            <Zap className="h-8 w-8 text-primary" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-semibold text-lg">Analyze Performance</h3>
+                                            <p className="text-sm text-muted-foreground mb-4">Get a detailed breakdown of your code and see the optimal approach.</p>
+                                        </div>
                                         <Button onClick={handleGetAIFeedback} disabled={isGeneratingFeedback}>
                                             <BrainCircuit className="mr-2 h-4 w-4" />
-                                            Generate AI Feedback
+                                            Generate AI Feedback & Optimal Hint
                                         </Button>
                                      </div>
                                 )}
-                                {isGeneratingFeedback && <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> <p>Generating feedback...</p></div>}
+                                {isGeneratingFeedback && <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> <p>Generating insights...</p></div>}
                                 {aiFeedback && (
-                                    <div className="prose prose-sm dark:prose-invert max-w-none space-y-4">
+                                    <div className="prose prose-sm dark:prose-invert max-w-none space-y-6">
+                                        <div className="p-4 bg-muted/50 rounded-lg border border-primary/20">
+                                            <h4 className="font-semibold text-primary text-base mb-2 flex items-center gap-2">
+                                                <Zap className="h-4 w-4" /> Optimal Solution Hint
+                                            </h4>
+                                            <p className="text-foreground leading-relaxed">{aiFeedback.optimalSolutionHint}</p>
+                                        </div>
                                         <div>
-                                            <h4 className="font-semibold text-base mb-1">Code Explanation</h4>
+                                            <h4 className="font-semibold text-base mb-1">How Your Code Works</h4>
                                             <p className="text-muted-foreground">{aiFeedback.explanation}</p>
                                         </div>
                                         <div>
-                                            <h4 className="font-semibold text-base mb-1">Improvement Suggestions</h4>
-                                            <p className="text-muted-foreground">{aiFeedback.improvementSuggestions}</p>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-semibold text-base mb-1">Alternative Approaches</h4>
-                                            <p className="text-muted-foreground">{aiFeedback.alternativeApproaches}</p>
+                                            <h4 className="font-semibold text-base mb-1">Code Improvements</h4>
+                                            <p className="text-muted-foreground">{aiFeedback.codeImprovements}</p>
                                         </div>
                                     </div>
                                 )}
