@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview Provides code explanation and optimal solution suggestions.
+ * @fileOverview Provides code explanation and optimal solution suggestions based on user code.
  *
  * - explainAndImproveCode - A function that accepts code and provides feedback.
  * - CodeExplanationAndImprovementInput - The input type for the explainAndImproveCode function.
@@ -36,7 +36,7 @@ const prompt = ai.definePrompt({
   output: {schema: CodeExplanationAndImprovementOutputSchema},
   prompt: `You are an expert software engineer and technical interviewer. 
 
-Review the following code solution:
+Review the following code solution provided by a student:
 
 Language: {{{language}}}
 Code:
@@ -45,9 +45,9 @@ Code:
 \`\`\`
 
 Provide feedback in three parts:
-1. Explanation: Briefly explain what the current code does and any issues it has.
-2. Optimal Solution Hint: Describe the most efficient way to solve this problem (mentioning Time and Space complexity). Do not give the full code, but explain the algorithm clearly.
-3. Code Improvements: Suggest specific changes to make the user's current code cleaner, faster, or more idiomatic.`,
+1. Explanation: Explain exactly how the user's current implementation works, pointing out any specific logic they used correctly or incorrectly.
+2. Optimal Solution Hint: Describe the absolute most efficient way to solve this problem. Mention the Big O Time and Space complexity explicitly. Do not provide the final code, but describe the algorithm so clearly that they can implement it.
+3. Code Improvements: Based specifically on the code they wrote, suggest 2-3 concrete ways to make it more idiomatic, faster, or more readable (e.g., using a Map instead of nested loops, or using list comprehensions).`,
 });
 
 const explainAndImproveCodeFlow = ai.defineFlow(

@@ -1,9 +1,9 @@
 'use server';
 
 /**
- * @fileOverview Provides coding hints based on current progress.
+ * @fileOverview Provides coding hints that identify errors and guide the user.
  *
- * - generateHint - A function that generates a hint for the user.
+ * - generateHint - A function that generates a corrective hint for the user.
  * - GenerateHintInput - The input type for the generateHint function.
  * - GenerateHintOutput - The return type for the generateHint function.
  */
@@ -19,7 +19,7 @@ const GenerateHintInputSchema = z.object({
 export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>;
 
 const GenerateHintOutputSchema = z.object({
-  hint: z.string().describe('The generated hint as a comment.'),
+  hint: z.string().describe('The generated corrective hint as a comment.'),
 });
 export type GenerateHintOutput = z.infer<typeof GenerateHintOutputSchema>;
 
@@ -31,9 +31,9 @@ const prompt = ai.definePrompt({
   name: 'generateHintPrompt',
   input: {schema: GenerateHintInputSchema},
   output: {schema: GenerateHintOutputSchema},
-  prompt: `You are an expert coding tutor. 
+  prompt: `You are an expert coding tutor and technical debugger.
 
-Analyze the user's current implementation carefully. 
+Analyze the user's current implementation for the following problem:
 
 Problem Description:
 {{{problemDescription}}}
@@ -44,12 +44,17 @@ User's Current Code (Language: {{{language}}}):
 \`\`\`
 
 Your Task:
-1. Identify what the user has implemented correctly.
-2. Identify the immediate next logical step or a bug in their current approach.
-3. Provide a short, helpful hint that guides them specifically on their current path without giving away the full answer.
-4. The hint MUST be formatted as a comment for the specified programming language (e.g., starting with # for Python or // for Java/C++).
+1. Check for syntax errors, common language-specific pitfalls, or logical bugs.
+2. If there is a syntax error (e.g., missing colon in Python, semicolon in C++, or type mismatch), identify it clearly.
+3. If the logic is incorrect or incomplete, explain why without giving away the entire solution.
+4. If the code is correct so far, suggest the immediate next logical step.
+5. Provide a short, helpful hint that guides them specifically on their current path.
+6. The hint MUST be formatted as a comment for the specified programming language (e.g., # for Python, // for Java/C++).
 
-Do not provide a generic hint. Make it specific to the code they have written.`,
+Example Hint:
+# You have a syntax error: missing ":" at the end of your "if" statement.
+OR
+// Your logic for reversing the string is almost there, but remember that the loop should only go up to the middle of the array.`,
 });
 
 const generateHintFlow = ai.defineFlow(
