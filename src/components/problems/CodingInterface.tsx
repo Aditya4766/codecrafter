@@ -30,22 +30,29 @@ type AIFeedback = {
     alternativeApproaches: string;
 };
 
-// Helper function for retrying promises
-const retry = <T,>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
+// Helper function for retrying promises with exponential backoff
+const retry = <T,>(fn: () => Promise<T>, retries = 3, delay = 1500): Promise<T> => {
     return new Promise((resolve, reject) => {
-        const attempt = (n: number) => {
+        const attempt = (n: number, currentDelay: number) => {
             fn()
                 .then(resolve)
                 .catch(err => {
-                    if (n > 0 && (err.message.includes("503") || err.message.toLowerCase().includes("overloaded"))) {
-                        console.log(`AI service busy. Retrying in ${delay}ms... (${n} retries left)`);
-                        setTimeout(() => attempt(n - 1), delay);
+                    const errorMsg = (err?.message || "").toLowerCase();
+                    const isTransient = 
+                        errorMsg.includes("503") || 
+                        errorMsg.includes("overloaded") || 
+                        errorMsg.includes("failed to fetch") ||
+                        errorMsg.includes("fetch failed") ||
+                        errorMsg.includes("network error");
+
+                    if (n > 0 && isTransient) {
+                        setTimeout(() => attempt(n - 1, currentDelay * 1.5), currentDelay);
                     } else {
                         reject(err);
                     }
                 });
         };
-        attempt(retries);
+        attempt(retries, delay);
     });
 };
 
@@ -65,7 +72,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     }, [])
 
     useEffect(() => {
-        // On component mount, set the code for the default language
         setCode(problem.starterCode[language]);
     }, [problem, language]);
 
@@ -94,7 +100,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setAIFeedback(null);
             
             try {
-                // 1. Generate test cases with retry logic
                 const { testCases: generatedCases } = await retry(() => generateTestCases({
                     problemDescription: problem.description,
                     functionSignature: problem.functionSignature,
@@ -109,7 +114,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     return;
                 }
 
-                // 2. Run code with generated test cases with retry logic
                 const { results, executionError } = await retry(() => runCodeWithTests({
                     code,
                     language,
@@ -124,32 +128,21 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         title: "Execution Error",
                         description: executionError,
                     });
-                    // Show error in output tab
                     setOutput(`Execution Error:\n${executionError}`);
                     setActiveTab("output");
-                    setTestResults([]); // Clear any partial results
+                    setTestResults([]);
                     return;
                 }
 
                 setTestResults(results);
 
             } catch (error) {
-                console.error("Failed to submit code:", error);
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-
-                if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
-                     toast({
-                        variant: "destructive",
-                        title: "AI Service Unavailable",
-                        description: "The AI service is currently busy. Please try again in a few moments.",
-                    });
-                } else {
-                    toast({
-                        variant: "destructive",
-                        title: "Submission Error",
-                        description: `Could not evaluate your code. ${errorMessage}`,
-                    });
-                }
+                toast({
+                    variant: "destructive",
+                    title: "Submission Failed",
+                    description: `Could not evaluate your code. ${errorMessage}`,
+                });
             }
         });
     };
@@ -164,21 +157,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 }));
                 setAIFeedback(feedback);
             } catch (error) {
-                console.error("Failed to get AI feedback:", error);
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-                 if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
-                     toast({
-                        variant: "destructive",
-                        title: "AI Service Unavailable",
-                        description: "The AI service is currently busy. Please try again in a few moments.",
-                    });
-                } else {
-                    toast({
-                        variant: "destructive",
-                        title: "AI Feedback Error",
-                        description: "There was an issue generating AI feedback.",
-                    });
-                }
+                toast({
+                    variant: "destructive",
+                    title: "AI Feedback Error",
+                    description: `There was an issue generating feedback: ${errorMessage}`,
+                });
             }
         });
     };
@@ -200,21 +184,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     });
                 }
             } catch (error) {
-                console.error("Failed to get hint:", error);
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-                 if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
-                     toast({
-                        variant: "destructive",
-                        title: "AI Service Unavailable",
-                        description: "The AI service is currently busy. Please try again in a few moments.",
-                    });
-                } else {
-                    toast({
-                        variant: "destructive",
-                        title: "Hint Error",
-                        description: "There was an issue generating a hint.",
-                    });
-                }
+                toast({
+                    variant: "destructive",
+                    title: "Hint Error",
+                    description: `There was an issue generating a hint: ${errorMessage}`,
+                });
             }
         });
     };
