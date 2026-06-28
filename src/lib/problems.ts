@@ -441,7 +441,7 @@ console.log(isPalindrome(parseInt(input)));
     {
         id: 'remove-duplicates-from-sorted-array',
         title: 'Remove Duplicates from Sorted Array',
-        difficulty: 'Easy',
+        difficulty: 'Medium',
         description: `
 <h3 class="font-semibold mt-4 mb-2">Problem Description</h3>
 <p>Given an integer array <code>nums</code> sorted in non-decreasing order, remove the duplicates in-place such that each unique element appears only once. The relative order of the elements should be kept the same. Then return the number of unique elements in <code>nums</code>.</p>
@@ -568,7 +568,7 @@ console.log(nums.slice(0, k).join(' '));
     {
         id: 'best-time-to-buy-and-sell-stock',
         title: 'Best Time to Buy and Sell Stock',
-        difficulty: 'Easy',
+        difficulty: 'Hard',
         description: `
 <h3 class="font-semibold mt-4 mb-2">Problem Description</h3>
 <p>You are given an array <code>prices</code> where <code>prices[i]</code> is the price of a given stock on the <code>i<sup>th</sup></code> day.</p>
@@ -792,7 +792,7 @@ console.log(nums.join(' '));
     {
         id: 'valid-anagram',
         title: 'Valid Anagram',
-        difficulty: 'Easy',
+        difficulty: 'Medium',
         description: `
 <h3 class="font-semibold mt-4 mb-2">Problem Description</h3>
 <p>Given two strings <code>s</code> and <code>t</code>, return <code>true</code> if <code>t</code> is an anagram of <code>s</code>, and <code>false</code> otherwise.</p>
@@ -995,7 +995,7 @@ console.log(containsDuplicate(nums));
     {
         id: 'missing-number',
         title: 'Missing Number',
-        difficulty: 'Easy',
+        difficulty: 'Medium',
         description: `
 <h3 class="font-semibold mt-4 mb-2">Problem Description</h3>
 <p>Given an array <code>nums</code> containing <code>n</code> distinct numbers in the range <code>[0, n]</code>, return <em>the only number in the range that is missing from the array.</em></p>
