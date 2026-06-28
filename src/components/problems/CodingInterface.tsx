@@ -87,10 +87,10 @@ const findCorrection = (word: string, dictionary: string[]): string | null => {
 };
 
 const DICTIONARIES: Record<string, string[]> = {
-  java: ['length', 'println', 'parseInt', 'Scanner', 'Arrays', 'equals', 'ArrayList', 'HashMap', 'Integer', 'String', 'System', 'public', 'static', 'void', 'main'],
-  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return'],
-  python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import'],
-  javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return']
+  java: ['length', 'println', 'parseInt', 'Scanner', 'Arrays', 'equals', 'ArrayList', 'HashMap', 'Integer', 'String', 'System', 'public', 'static', 'void', 'main', 'return', 'class', 'import'],
+  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return', 'main', 'using', 'namespace'],
+  python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import', 'self', 'if', 'else', 'elif', 'while', 'for', 'in'],
+  javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return', 'if', 'else', 'for', 'while', 'async', 'await']
 };
 
 export default function CodingInterface({ problem }: { problem: Problem }) {
@@ -109,12 +109,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     
     const lastNormalizedCode = useRef<string>("");
     const hintLevel = useRef<number>(0);
+    const hintCache = useRef<Record<string, Hint>>({});
 
     useEffect(() => {
         setCode(problem.starterCode[language]);
         setHints([]);
         lastNormalizedCode.current = "";
         hintLevel.current = 0;
+        hintCache.current = {};
         setRunResult(null);
         setTestResults([]);
         setAIFeedback(null);
@@ -145,6 +147,16 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const stack: {char: string, line: number}[] = [];
         const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
         const quotesStack: {char: string, line: number}[] = [];
+
+        // Check semicolons for Java/C++
+        if (lang === 'java' || lang === 'cpp') {
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line && !line.endsWith('{') && !line.endsWith('}') && !line.endsWith(';') && !line.startsWith('//') && !line.startsWith('#') && !line.startsWith('public') && !line.startsWith('class') && !line.startsWith('for') && !line.startsWith('if') && !line.startsWith('while')) {
+                     // Potential missing semicolon
+                }
+            }
+        }
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -340,15 +352,25 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     const handleGetHint = () => {
         const normalized = normalizeCode(code);
-        if (normalized === lastNormalizedCode.current) {
-            if (hintLevel.current < 3) hintLevel.current += 1;
-            else { setActiveTab("hints"); return; }
-        } else {
+        
+        // Check if code has changed significantly
+        if (normalized !== lastNormalizedCode.current) {
             lastNormalizedCode.current = normalized;
             hintLevel.current = 0;
             setHints([]);
+            hintCache.current = {};
+        } else {
+            // Check if we have the next level cached for this code
+            const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current + 1}`;
+            if (hintCache.current[cacheKey]) {
+                hintLevel.current += 1;
+                setHints(prev => [...prev, hintCache.current[cacheKey]]);
+                setActiveTab("hints");
+                return;
+            }
         }
 
+        // Run local checks first
         const localError = performIntelligentLocalChecks(code, language);
         if (localError) {
             setHints([{ ...localError, level: -1 }]);
@@ -359,15 +381,31 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
+                const currentHintsText = hints.map(h => h.text);
                 const { hint, category } = await generateHint({
                     code,
                     language,
                     problemDescription: problem.description,
                     hintLevel: hintLevel.current,
+                    previousHints: currentHintsText,
                 });
 
                 if (hint) {
-                    setHints(prev => [...prev, { text: hint, category: category as any, level: hintLevel.current }]);
+                    const newHint: Hint = { 
+                        text: hint, 
+                        category: category as any, 
+                        level: hintLevel.current 
+                    };
+                    
+                    // Increment and cache
+                    if (normalized === lastNormalizedCode.current) {
+                        hintLevel.current += 1;
+                    }
+                    
+                    const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
+                    hintCache.current[cacheKey] = newHint;
+                    
+                    setHints(prev => [...prev, newHint]);
                 }
             } catch (error: any) {
                 toast({
@@ -408,7 +446,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const getCategoryLabel = (hint: Hint) => {
       if (hint.category === 'progress') return "✅ Excellent Work!";
       if (hint.level !== undefined && hint.level >= 0) {
-          return hint.level === 3 ? "💡 Final Hint" : `💡 Hint ${hint.level + 1} of 4`;
+          return `💡 Hint ${hint.level + 1}`;
       }
       switch (hint.category) {
         case 'syntax': return '🔴 Syntax Error';
@@ -542,7 +580,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     <div className="pt-2">
                                         <Button onClick={handleGetHint} disabled={isGeneratingHint} variant="secondary" size="sm" className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 border border-amber-500/20">
                                           {isGeneratingHint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                                          {hints.length === 0 ? "Get My First Hint" : hintLevel.current >= 3 ? "Review Final Hint" : "Get Next Hint"}
+                                          Get Hint
                                         </Button>
                                     </div>
                                 </div>
