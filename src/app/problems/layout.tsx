@@ -14,6 +14,8 @@ import {
     DropdownMenuTrigger,
   } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation";
+import { useAuth, useUser } from "@/firebase";
+import { signOut } from "firebase/auth";
 
 export default function ProblemsLayout({
   children,
@@ -21,9 +23,11 @@ export default function ProblemsLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const auth = useAuth();
+  const { user } = useUser();
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('isLoggedIn');
+  const handleLogout = async () => {
+    await signOut(auth);
     router.push('/');
   };
 
@@ -39,17 +43,17 @@ export default function ProblemsLayout({
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                         <Avatar className="h-8 w-8">
-                            <AvatarImage src="https://picsum.photos/seed/user/40/40" alt="User" />
-                            <AvatarFallback>U</AvatarFallback>
+                            <AvatarImage src={user?.photoURL || `https://picsum.photos/seed/${user?.uid}/40/40`} alt="User" />
+                            <AvatarFallback>{user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'U'}</AvatarFallback>
                         </Avatar>
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56" align="end" forceMount>
                     <DropdownMenuLabel className="font-normal">
                         <div className="flex flex-col space-y-1">
-                            <p className="text-sm font-medium leading-none">User</p>
+                            <p className="text-sm font-medium leading-none">{user?.displayName || 'User'}</p>
                             <p className="text-xs leading-none text-muted-foreground">
-                                user@example.com
+                                {user?.email || 'user@example.com'}
                             </p>
                         </div>
                     </DropdownMenuLabel>
