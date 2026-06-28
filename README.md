@@ -1,5 +1,5 @@
-# Firebase Studio
+# Final Year Project
 
-This is a NextJS starter in Firebase Studio.
+Group No. 31
 
-To get started, take a look at src/app/page.tsx.
+Intelligent Code Guidance & Learning Platform 
