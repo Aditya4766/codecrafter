@@ -3,7 +3,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Code, LogOut } from "lucide-react";
+import { Code, LogOut, History, UserCircle } from "lucide-react";
 import Link from "next/link";
 import {
     DropdownMenu,
@@ -57,6 +57,13 @@ export default function ProblemsLayout({
                             </p>
                         </div>
                     </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                        <Link href="/profile/submissions" className="cursor-pointer w-full flex items-center">
+                            <History className="mr-2 h-4 w-4" />
+                            <span>My Submissions</span>
+                        </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                         <LogOut className="mr-2 h-4 w-4" />

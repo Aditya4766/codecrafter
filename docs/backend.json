@@ -12,6 +12,28 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "User's coding problem submission history",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "problemId": { "type": "string" },
+        "problemTitle": { "type": "string" },
+        "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"] },
+        "language": { "type": "string" },
+        "submittedCode": { "type": "string" },
+        "submissionStatus": { "type": "string", "enum": ["Accepted", "Wrong Answer", "Runtime Error", "Compilation Error"] },
+        "executionTime": { "type": "string" },
+        "memoryUsage": { "type": "number" },
+        "estimatedTimeComplexity": { "type": "string" },
+        "estimatedSpaceComplexity": { "type": "string" },
+        "AIHintLevelUsed": { "type": "number" },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "problemId", "submissionStatus", "submittedAt"]
     }
   },
   "auth": {
@@ -21,6 +43,10 @@
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Collection of user profiles"
+    },
+    "/users/{userId}/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Subcollection of problem submissions for a user"
     }
   }
 }
