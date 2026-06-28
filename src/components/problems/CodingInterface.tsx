@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect, useMemo } from "react";
+import { useState, useTransition, useEffect } from "react";
 import type { Problem } from "@/lib/problems";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,10 @@ import {
   Zap, 
   Settings, 
   Terminal, 
-  AlertCircle 
+  AlertCircle,
+  Info,
+  ChevronRight,
+  Sparkles
 } from "lucide-react";
 import { Editor } from "@monaco-editor/react";
 import { explainAndImproveCode } from "@/ai/flows/code-explanation-and-improvement";
@@ -28,6 +31,7 @@ import { generateTestCases } from "@/ai/flows/test-cases-generation";
 import { runCodeWithTests } from "@/ai/flows/run-code-with-tests";
 import { generateHint } from "@/ai/flows/generate-hint";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 type Language = "python" | "java" | "cpp" | "javascript";
 
@@ -42,6 +46,12 @@ type AIFeedback = {
     explanation: string;
     optimalSolutionHint: string;
     codeImprovements: string;
+};
+
+type Hint = {
+  text: string;
+  category: 'syntax' | 'logic' | 'direction' | 'optimization';
+  isSyntaxError: boolean;
 };
 
 // Helper function for retrying promises with exponential backoff
@@ -81,7 +91,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
     const [runResult, setRunResult] = useState<{ output: string; passed?: boolean } | null>(null);
-    const [hintCount, setHintCount] = useState(0);
+    const [hints, setHints] = useState<Hint[]>([]);
 
     const [isClient, setIsClient] = useState(false);
 
@@ -91,7 +101,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     useEffect(() => {
         setCode(problem.starterCode[language]);
-        setHintCount(0); // Reset hints when changing language
+        setHints([]); // Reset hints when changing language
     }, [problem, language]);
 
     const [isExecuting, startExecuting] = useTransition();
@@ -220,34 +230,31 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const handleGetHint = () => {
         startGeneratingHint(async () => {
             try {
-                const { hint, isSyntaxError } = await retry(() => generateHint({
+                const { hint, isSyntaxError, category } = await retry(() => generateHint({
                     code: code,
                     language: language,
                     problemDescription: problem.description,
-                    hintLevel: hintCount,
+                    hintLevel: hints.length,
                 }));
 
                 if (hint) {
-                    // Prepend hint at the top or append at the bottom depending on preference
-                    // Here we append with a separator
-                    setCode(prev => prev.trim() + "\n\n" + hint);
+                    setHints(prev => [...prev, { text: hint, category: category as any, isSyntaxError }]);
+                    setActiveTab("hints");
                     
                     if (isSyntaxError) {
                         toast({
                             variant: "destructive",
                             title: "Mentor Check: Syntax Error",
-                            description: "Your code has a structural issue. Check the added comment.",
+                            description: "Your code has a structural issue. Check the Hint tab.",
                         });
                     } else {
                         toast({
-                            title: `Mentor Hint (Level ${hintCount + 1})`,
-                            description: "I've added a guide to help you move forward.",
+                            title: `Mentor Hint (Level ${hints.length + 1})`,
+                            description: "New guidance added to the Hint tab.",
                         });
-                        setHintCount(prev => prev + 1);
                     }
                 }
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
                 toast({
                     variant: "destructive",
                     title: "Hint Error",
@@ -255,6 +262,26 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 });
             }
         });
+    };
+
+    const getHintIcon = (category: string) => {
+      switch (category) {
+        case 'syntax': return <AlertCircle className="w-4 h-4 text-destructive" />;
+        case 'logic': return <Lightbulb className="w-4 h-4 text-amber-500" />;
+        case 'direction': return <Sparkles className="w-4 h-4 text-green-500" />;
+        case 'optimization': return <Zap className="w-4 h-4 text-primary" />;
+        default: return <Info className="w-4 h-4" />;
+      }
+    };
+
+    const getHintStyles = (category: string) => {
+      switch (category) {
+        case 'syntax': return "bg-destructive/5 border-destructive/20";
+        case 'logic': return "bg-amber-500/5 border-amber-500/20";
+        case 'direction': return "bg-green-500/5 border-green-500/20";
+        case 'optimization': return "bg-primary/5 border-primary/20";
+        default: return "bg-secondary/5 border-border";
+      }
     };
 
     return (
@@ -346,18 +373,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         />
                     </div>
                 </Card>
-
-                <div className="flex justify-between items-center px-1">
-                    <Button onClick={handleGetHint} disabled={isGeneratingHint} variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-primary">
-                        {isGeneratingHint ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Lightbulb className="mr-2 h-3 w-3" />}
-                        {hintCount === 0 ? "Stuck? Get a Hint" : `Get Next Hint (${hintCount})`}
-                    </Button>
-                </div>
                 
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="h-[240px] flex flex-col">
-                    <TabsList className="grid grid-cols-3 bg-card border-none h-10 p-1 shadow-sm">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="h-[280px] flex flex-col">
+                    <TabsList className="grid grid-cols-4 bg-card border-none h-10 p-1 shadow-sm">
                         <TabsTrigger value="output" className="flex items-center gap-2">
                             <Terminal className="w-4 h-4" /> Console
+                        </TabsTrigger>
+                        <TabsTrigger value="hints" className="flex items-center gap-2">
+                            <Lightbulb className="w-4 h-4 text-amber-500" /> Hints
                         </TabsTrigger>
                         <TabsTrigger value="test-results" disabled={testResults.length === 0 && !isSubmitting} className="flex items-center gap-2">
                             <CheckCircle className="w-4 h-4" /> Tests
@@ -397,6 +420,61 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                             <p>Click 'Run' to simulate execution.<br/>AI-generated output and errors will appear here.</p>
                                         </div>
                                     )}
+                                </div>
+                            </ScrollArea>
+                        </Card>
+                    </TabsContent>
+
+                    <TabsContent value="hints" className="flex-grow mt-2 overflow-hidden">
+                        <Card className="h-full border-none bg-card shadow-sm flex flex-col">
+                            <ScrollArea className="flex-1 p-4">
+                                <div className="space-y-4">
+                                    {hints.length === 0 && !isGeneratingHint && (
+                                        <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60">
+                                            <Lightbulb className="w-8 h-8" />
+                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll analyze your code without giving it away.</p>
+                                        </div>
+                                    )}
+
+                                    {hints.map((hint, idx) => (
+                                        <div 
+                                          key={idx} 
+                                          className={cn(
+                                            "p-3 rounded-lg border flex gap-3 animate-in slide-in-from-bottom-2 duration-300",
+                                            getHintStyles(hint.category)
+                                          )}
+                                        >
+                                            <div className="mt-0.5">{getHintIcon(hint.category)}</div>
+                                            <div className="space-y-1">
+                                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground opacity-70">
+                                                  {hint.category} {hint.category === 'syntax' ? 'Error' : 'Hint'} {idx + 1}
+                                                </p>
+                                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
+                                                  {hint.text}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {isGeneratingHint && (
+                                        <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-secondary/20 rounded-lg animate-pulse">
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                          <span>Mentor is analyzing your code...</span>
+                                        </div>
+                                    )}
+
+                                    <div className="pt-2">
+                                        <Button 
+                                          onClick={handleGetHint} 
+                                          disabled={isGeneratingHint} 
+                                          variant="secondary" 
+                                          size="sm" 
+                                          className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 border border-amber-500/20"
+                                        >
+                                          {isGeneratingHint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                                          {hints.length === 0 ? "Get My First Hint" : "Show Next Hint"}
+                                        </Button>
+                                    </div>
                                 </div>
                             </ScrollArea>
                         </Card>
