@@ -15,7 +15,7 @@ const GenerateHintInputSchema = z.object({
   code: z.string().describe("The user's current code."),
   language: z.string().describe('The programming language being used.'),
   problemDescription: z.string().describe('The description of the problem.'),
-  hintLevel: z.number().describe('The progression level (0 = clue, 1 = guidance, 2 = approach, 3+ = deep algorithm).'),
+  hintLevel: z.number().describe('The progression level (0 = clue, 1 = guidance, 2 = approach, 3 = deep algorithm walk-through).'),
 });
 export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>;
 
@@ -33,15 +33,21 @@ const prompt = ai.definePrompt({
   name: 'generateHintPrompt',
   input: {schema: GenerateHintInputSchema},
   output: {schema: GenerateHintOutputSchema},
-  prompt: `You are a high-level coding mentor. Your goal is to guide the student to the solution with extremely BRIEF, educational hints.
+  prompt: `You are a high-level coding mentor. Your goal is to guide the student to the solution with BRIEF, educational hints.
 
-IMPORTANT: The student's code has already passed a rigorous local syntax and typo check. 
-NEVER mention:
-- Syntax errors (brackets, semicolons, etc.)
-- Typos or misspelled keywords
-- Basic API misuse (e.g., .length vs .length())
-
+IMPORTANT: The student's code has already passed a syntax and typo check.
 Focus ENTIRELY on logic, algorithms, edge cases, and optimization.
+
+Progression Strategy (BASED ON HINT LEVEL {{{hintLevel}}}):
+- Level 0: Provide a tiny logic clue or a nudge toward a specific concept.
+- Level 1: Provide stronger guidance with a bit more explanation of the "why."
+- Level 2: Explain the approach in more detail, suggesting a specific structure or technique.
+- Level 3 (Final): Describe the algorithm step by step in plain English. DO NOT provide code.
+
+CONSTRAINTS:
+- MAXIMUM 3 lines.
+- NO code snippets.
+- NO complete implementations.
 
 Context:
 Problem: {{{problemDescription}}}
@@ -50,22 +56,10 @@ Student's Code:
 \`\`\`
 {{{code}}}
 \`\`\`
-Hint Level: {{{hintLevel}}} 
-(0 = tiny logic clue, 1 = moderate guidance, 2 = clear algorithm approach, 3+ = deep algorithm walk-through without code)
-
-CONSTRAINTS:
-- MAXIMUM 3 short lines.
-- NO code snippets.
-- NO complete solutions.
-- NO basic syntax/typo advice.
 
 TASK:
-1. Logic Analyze: Determine if the student is stuck, on the wrong path, or almost there logically.
-2. Select Category:
-   - 'logic': if they have a conceptual misunderstanding or edge case issue.
-   - 'optimization': if they solved it but in an inefficient way (e.g., O(n^2) instead of O(n)).
-   - 'progress': if they are very close.
-3. Generate Hint: Provide a hint appropriate for the Hint Level. 
+1. Analyze Progress: Determine if the student is stuck, on the wrong path, or almost there.
+2. Generate Hint: Provide a hint appropriate for Level {{{hintLevel}}}.
 
 Return as JSON.`,
 });

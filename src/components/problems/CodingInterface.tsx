@@ -55,6 +55,7 @@ type Hint = {
   text: string;
   category: HintCategory;
   lineNumber?: number;
+  level?: number;
 };
 
 // Fuzzy match helper for typos
@@ -124,14 +125,13 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [hints, setHints] = useState<Hint[]>([]);
     
     // Caching for Hints
-    const lastCodeAnalyzed = useRef<string>("");
-    const hintCache = useRef<Record<string, Hint[]>>({});
+    const lastNormalizedCode = useRef<string>("");
     const hintLevel = useRef<number>(0);
 
     useEffect(() => {
         setCode(problem.starterCode[language]);
         setHints([]);
-        lastCodeAnalyzed.current = "";
+        lastNormalizedCode.current = "";
         hintLevel.current = 0;
     }, [problem, language]);
 
@@ -141,6 +141,17 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [isGeneratingHint, startGeneratingHint] = useTransition();
     
     const { toast } = useToast();
+
+    /**
+     * Normalizes code to detect meaningful changes
+     * Removes whitespace, blank lines, and comments
+     */
+    const normalizeCode = (str: string) => {
+        return str
+            .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "") // Remove C-style/Java/JS comments
+            .replace(/#.*/g, "") // Remove Python comments
+            .replace(/\s+/g, ""); // Remove all whitespace
+    };
 
     const handleLanguageChange = (value: string) => {
         const lang = value as Language;
@@ -162,7 +173,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             const line = lines[i];
             for (let j = 0; j < line.length; j++) {
                 const char = line[j];
-                // Quote balancing (simplistic)
                 if (char === '"' || char === "'") {
                     if (quotesStack.length > 0 && quotesStack[quotesStack.length-1].char === char) {
                         quotesStack.pop();
@@ -172,7 +182,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     continue;
                 }
 
-                if (quotesStack.length > 0) continue; // Ignore content inside quotes
+                if (quotesStack.length > 0) continue; 
 
                 if (['{', '[', '('].includes(char)) {
                     stack.push({char, line: i + 1});
@@ -210,7 +220,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             const lineText = lines[i].trim();
             if (lineText.startsWith('//') || lineText.startsWith('#') || lineText === '') continue;
 
-            // Typo detection (identifier extraction)
             const words = lineText.split(/[^a-zA-Z]/).filter(w => w.length > 3);
             for (const word of words) {
                 const correction = findCorrection(word, dictionary);
@@ -223,7 +232,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 }
             }
 
-            // Language Specific API Misuse Heuristics
             if (lang === 'java') {
                 if (lineText.includes('.length()') && !lineText.includes('String')) {
                     return {
@@ -239,27 +247,15 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         lineNumber: i + 1
                     };
                 }
-                if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith('{') && !lineText.endsWith(';')) {
-                    // Check missing braces or semicolons for non-Python
-                     if (!lineText.includes('//') && !lineText.includes('{')) {
-                        // Very rough check
-                     }
-                }
             }
 
             if (lang === 'javascript') {
-                if (lineText.includes('documnt')) {
-                    return { text: `Typo: "documnt".\nSuggestion: Use "document".`, category: 'typo', lineNumber: i + 1 };
-                }
-                if (lineText.includes('consol.')) {
-                    return { text: `Typo: "consol".\nSuggestion: Use "console".`, category: 'typo', lineNumber: i + 1 };
-                }
+                if (lineText.includes('documnt')) return { text: `Typo: "documnt".\nSuggestion: Use "document".`, category: 'typo', lineNumber: i + 1 };
+                if (lineText.includes('consol.')) return { text: `Typo: "consol".\nSuggestion: Use "console".`, category: 'typo', lineNumber: i + 1 };
             }
 
             if (lang === 'python') {
-                if (lineText.includes('.appendd')) {
-                   return { text: `Typo: ".appendd".\nSuggestion: Use ".append()".`, category: 'typo', lineNumber: i + 1 };
-                }
+                if (lineText.includes('.appendd')) return { text: `Typo: ".appendd".\nSuggestion: Use ".append()".`, category: 'typo', lineNumber: i + 1 };
                 if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith(':') && !lineText.includes('#')) {
                     return {
                         text: `Missing colon (:) after statement.\nSuggestion: Add a colon at the end of the line.`,
@@ -334,31 +330,35 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     };
 
     const handleGetHint = () => {
-        const trimmedCode = code.trim();
-        const cacheKey = `${problem.id}-${language}-${trimmedCode}`;
-
-        // 1. Cache/Significant change check
-        if (trimmedCode === lastCodeAnalyzed.current && hints.length > 0) {
-            setActiveTab("hints");
-            return;
+        const normalized = normalizeCode(code);
+        
+        // Stuck User Detection Logic
+        if (normalized === lastNormalizedCode.current) {
+            // User hasn't changed code meaningfuly
+            if (hintLevel.current < 3) {
+                hintLevel.current += 1;
+            } else {
+                // Already at final hint
+                setActiveTab("hints");
+                return;
+            }
+        } else {
+            // New meaningful code change
+            lastNormalizedCode.current = normalized;
+            hintLevel.current = 0;
+            setHints([]); // Clear previous hints for a new context
         }
 
-        if (hintCache.current[cacheKey]) {
-            setHints(hintCache.current[cacheKey]);
-            setActiveTab("hints");
-            return;
-        }
-
-        // 2. Perform INTELLIGENT LOCAL checks (Step 1, 2, 3)
-        const localError = performIntelligentLocalChecks(trimmedCode, language);
+        // 1. Perform INTELLIGENT LOCAL checks (Syntax/Typo/API)
+        const localError = performIntelligentLocalChecks(code, language);
         if (localError) {
-            const newHints = [...hints, localError];
-            setHints(newHints);
+            const newHint = { ...localError, level: -1 }; // Local hints don't count towards escalation
+            setHints([newHint]);
             setActiveTab("hints");
             return;
         }
 
-        // 3. Only if local checks pass, call Gemini (Logic/Optimization)
+        // 2. Only if local checks pass, call Gemini (Logic/Optimization)
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
@@ -372,15 +372,10 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 if (hint) {
                     const newHint: Hint = { 
                         text: hint, 
-                        category: category as any
+                        category: category as any,
+                        level: hintLevel.current
                     };
-                    const newHints = [...hints, newHint];
-                    setHints(newHints);
-                    
-                    // Update Cache & Level
-                    hintCache.current[cacheKey] = newHints;
-                    lastCodeAnalyzed.current = trimmedCode;
-                    hintLevel.current += 1;
+                    setHints(prev => [...prev, newHint]);
                 }
             } catch (error: any) {
                 const is429 = error?.message?.includes("429") || error?.status === 429;
@@ -419,8 +414,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
       }
     };
 
-    const getCategoryLabel = (category: HintCategory) => {
-      switch (category) {
+    const getCategoryLabel = (hint: Hint) => {
+      if (hint.level !== undefined && hint.level >= 0) {
+          if (hint.level === 3) return "💡 Final Hint";
+          return `💡 Hint ${hint.level + 1} of 4`;
+      }
+      switch (hint.category) {
         case 'syntax': return '🔴 Syntax Error';
         case 'typo': return '🟠 Typo';
         case 'api': return '🟡 API Misuse';
@@ -570,7 +569,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {hints.length === 0 && !isGeneratingHint && (
                                         <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60">
                                             <Lightbulb className="w-8 h-8" />
-                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll catch typos and API misuse instantly.</p>
+                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll catch typos and provide progressive logic advice.</p>
                                         </div>
                                     )}
 
@@ -585,7 +584,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                             <div className="mt-0.5">{getHintIcon(hint.category)}</div>
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground opacity-70">
-                                                  {getCategoryLabel(hint.category)}
+                                                  {getCategoryLabel(hint)}
                                                   {hint.lineNumber && ` • Line ${hint.lineNumber}`}
                                                 </p>
                                                 <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
@@ -598,7 +597,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {isGeneratingHint && (
                                         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-secondary/20 rounded-lg animate-pulse">
                                           <Loader2 className="w-4 h-4 animate-spin" />
-                                          <span>Assistant is analyzing your logic...</span>
+                                          <span>Mentor is analyzing your progress...</span>
                                         </div>
                                     )}
 
@@ -611,7 +610,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                           className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 border border-amber-500/20"
                                         >
                                           {isGeneratingHint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                                          {hints.length === 0 ? "Get My First Hint" : "Get Next Hint"}
+                                          {hints.length === 0 ? "Get My First Hint" : hintLevel.current >= 3 ? "Review Final Hint" : "Get Next Hint"}
                                         </Button>
                                     </div>
                                 </div>
