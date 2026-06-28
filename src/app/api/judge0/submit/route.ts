@@ -1,11 +1,10 @@
 
-/**
- * API route to initiate code execution.
- * Replaced RapidAPI dependency with a stateless token generation approach.
- */
-
 import { NextRequest, NextResponse } from 'next/server';
 
+/**
+ * API route to initiate code execution locally.
+ * Generates a stateless token to pass source code to the result fetcher.
+ */
 export async function POST(request: NextRequest) {
   try {
     const { source_code, language_id, stdin } = await request.json();
@@ -14,9 +13,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Source code is required' }, { status: 400 });
     }
 
-    // Instead of calling a 3rd party API here and storing a token,
-    // we generate a stateless token by encoding the submission data.
-    // This allows the "result" route to handle the actual execution.
+    // Stateless token containing the execution payload
     const submissionData = JSON.stringify({ 
       source_code, 
       language_id, 
