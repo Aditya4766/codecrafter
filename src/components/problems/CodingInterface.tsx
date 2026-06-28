@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import type { Problem } from "@/lib/problems";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,6 @@ import {
   Terminal, 
   AlertCircle,
   Info,
-  ChevronRight,
   Sparkles
 } from "lucide-react";
 import { Editor } from "@monaco-editor/react";
@@ -50,27 +49,21 @@ type AIFeedback = {
 
 type Hint = {
   text: string;
-  category: 'syntax' | 'logic' | 'direction' | 'optimization';
+  category: 'syntax' | 'logic' | 'direction' | 'optimization' | 'progress';
   isSyntaxError: boolean;
 };
 
-// Helper function for retrying promises with exponential backoff
-const retry = <T,>(fn: () => Promise<T>, retries = 3, delay = 1500): Promise<T> => {
+// Helper for retrying promises
+const retry = <T,>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> => {
     return new Promise((resolve, reject) => {
         const attempt = (n: number, currentDelay: number) => {
             fn()
                 .then(resolve)
                 .catch(err => {
                     const errorMsg = (err?.message || "").toLowerCase();
-                    const isTransient = 
-                        errorMsg.includes("503") || 
-                        errorMsg.includes("overloaded") || 
-                        errorMsg.includes("failed to fetch") ||
-                        errorMsg.includes("fetch failed") ||
-                        errorMsg.includes("network error");
-
+                    const isTransient = errorMsg.includes("503") || errorMsg.includes("overloaded") || errorMsg.includes("fetch failed");
                     if (n > 0 && isTransient) {
-                        setTimeout(() => attempt(n - 1, currentDelay * 1.5), currentDelay);
+                        setTimeout(() => attempt(n - 1, currentDelay * 2), currentDelay);
                     } else {
                         reject(err);
                     }
@@ -84,24 +77,24 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [language, setLanguage] = useState<Language>("python");
     const [code, setCode] = useState(problem.starterCode.python);
     const [fontSize, setFontSize] = useState(14);
-    const [theme, setTheme] = useState("vs-dark");
     
-    // Execution States
+    // States
     const [testResults, setTestResults] = useState<TestCaseResult[]>([]);
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
     const [runResult, setRunResult] = useState<{ output: string; passed?: boolean } | null>(null);
     const [hints, setHints] = useState<Hint[]>([]);
-
-    const [isClient, setIsClient] = useState(false);
-
-    useEffect(() => {
-        setIsClient(true);
-    }, []);
+    
+    // Caching for Hints
+    const lastCodeAnalyzed = useRef<string>("");
+    const hintCache = useRef<Record<string, Hint[]>>({});
+    const hintLevel = useRef<number>(0);
 
     useEffect(() => {
         setCode(problem.starterCode[language]);
-        setHints([]); // Reset hints when changing language
+        setHints([]);
+        lastCodeAnalyzed.current = "";
+        hintLevel.current = 0;
     }, [problem, language]);
 
     const [isExecuting, startExecuting] = useTransition();
@@ -114,7 +107,64 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const handleLanguageChange = (value: string) => {
         const lang = value as Language;
         setLanguage(lang);
-        setCode(problem.starterCode[lang]);
+    };
+
+    const performLocalSyntaxCheck = (code: string, lang: Language): Hint | null => {
+        // Simple brace/bracket matching
+        const stack: string[] = [];
+        const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
+        
+        for (let i = 0; i < code.length; i++) {
+            const char = code[i];
+            if (['{', '[', '('].includes(char)) {
+                stack.push(char);
+            } else if (['}', ']', ')'].includes(char)) {
+                if (stack.length === 0 || stack.pop() !== pairs[char]) {
+                    return {
+                        text: `🔴 Syntax Error\nUnmatched closing character '${char}' detected.\nCheck your structure before asking for a logical hint.`,
+                        category: 'syntax',
+                        isSyntaxError: true
+                    };
+                }
+            }
+        }
+        
+        if (stack.length > 0) {
+            return {
+                text: `🔴 Syntax Error\nMissing closing character for '${stack[stack.length - 1]}'.\nComplete your blocks to continue.`,
+                category: 'syntax',
+                isSyntaxError: true
+            };
+        }
+
+        // Basic language specific checks
+        if (lang === 'python') {
+            const lines = code.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].trim().endsWith(':') && i + 1 < lines.length) {
+                    const nextLine = lines[i + 1];
+                    if (nextLine.trim() !== "" && !nextLine.startsWith(' ') && !nextLine.startsWith('\t')) {
+                        return {
+                            text: `🔴 Syntax Error\nExpected an indented block after ':' on line ${i + 1}.`,
+                            category: 'syntax',
+                            isSyntaxError: true
+                        };
+                    }
+                }
+            }
+        }
+
+        if (['java', 'cpp', 'javascript'].includes(lang)) {
+            if (code.includes('def ')) {
+                return {
+                    text: `🔴 Syntax Error\n'def' keyword detected. Did you mean to use ${lang === 'javascript' ? 'function' : 'a method declaration'}?`,
+                    category: 'syntax',
+                    isSyntaxError: true
+                };
+            }
+        }
+
+        return null;
     };
 
     const handleRunCode = () => {
@@ -136,12 +186,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     setRunResult({ output: results[0].actualOutput, passed: results[0].passed });
                 }
             } catch (error) {
-                const msg = error instanceof Error ? error.message : "AI execution failed";
-                toast({
-                    variant: "destructive",
-                    title: "Execution Error",
-                    description: msg,
-                });
+                toast({ variant: "destructive", title: "Execution Error", description: "Simulation failed. Please try again." });
             }
         });
     };
@@ -158,15 +203,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     functionSignature: problem.functionSignature,
                 }));
 
-                if (!generatedCases || generatedCases.length === 0) {
-                    toast({
-                        variant: "destructive",
-                        title: "Submission Error",
-                        description: "Could not generate test cases for submission.",
-                    });
-                    return;
-                }
-
                 const { results, executionError } = await retry(() => runCodeWithTests({
                     code,
                     language: language === 'javascript' ? 'python' : language as any,
@@ -176,89 +212,80 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 }));
 
                 if (executionError) {
-                    toast({
-                        variant: "destructive",
-                        title: "Execution Error",
-                        description: executionError,
-                    });
                     setActiveTab("output");
-                    setTestResults([]);
+                    setRunResult({ output: executionError, passed: false });
                     return;
                 }
 
                 setTestResults(results);
-                
-                const allPassed = results.every(r => r.passed);
-                if (allPassed) {
-                  toast({
-                    title: "Success!",
-                    description: "All test cases passed. Check AI Feedback for the optimal solution hint!",
-                  });
+                if (results.every(r => r.passed)) {
+                  toast({ title: "Success!", description: "All test cases passed." });
                 }
-
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-                toast({
-                    variant: "destructive",
-                    title: "Submission Failed",
-                    description: `Could not evaluate your code. ${errorMessage}`,
-                });
-            }
-        });
-    };
-    
-    const handleGetAIFeedback = () => {
-        startGeneratingFeedback(async () => {
-            setActiveTab("ai-feedback");
-            try {
-                const feedback = await retry(() => explainAndImproveCode({
-                    code: code,
-                    language: language,
-                }));
-                setAIFeedback(feedback as AIFeedback);
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-                toast({
-                    variant: "destructive",
-                    title: "AI Feedback Error",
-                    description: `There was an issue generating feedback: ${errorMessage}`,
-                });
+                toast({ variant: "destructive", title: "Submission Failed", description: "Could not evaluate code." });
             }
         });
     };
 
     const handleGetHint = () => {
+        const trimmedCode = code.trim();
+        const cacheKey = `${problem.id}-${language}-${trimmedCode}`;
+
+        // 1. Check Cache
+        if (trimmedCode === lastCodeAnalyzed.current && hints.length > 0) {
+            setActiveTab("hints");
+            return;
+        }
+
+        if (hintCache.current[cacheKey]) {
+            setHints(hintCache.current[cacheKey]);
+            setActiveTab("hints");
+            return;
+        }
+
+        // 2. Local Syntax Check
+        const localError = performLocalSyntaxCheck(trimmedCode, language);
+        if (localError) {
+            const newHints = [...hints, localError];
+            setHints(newHints);
+            hintCache.current[cacheKey] = newHints;
+            setActiveTab("hints");
+            return;
+        }
+
+        // 3. AI Hint Generation
         startGeneratingHint(async () => {
             try {
+                setActiveTab("hints");
                 const { hint, isSyntaxError, category } = await retry(() => generateHint({
                     code: code,
                     language: language,
                     problemDescription: problem.description,
-                    hintLevel: hints.length,
+                    hintLevel: hintLevel.current,
                 }));
 
                 if (hint) {
-                    setHints(prev => [...prev, { text: hint, category: category as any, isSyntaxError }]);
-                    setActiveTab("hints");
+                    const newHint: Hint = { 
+                        text: hint, 
+                        category: category as any, 
+                        isSyntaxError 
+                    };
+                    const newHints = [...hints, newHint];
+                    setHints(newHints);
                     
-                    if (isSyntaxError) {
-                        toast({
-                            variant: "destructive",
-                            title: "Mentor Check: Syntax Error",
-                            description: "Your code has a structural issue. Check the Hint tab.",
-                        });
-                    } else {
-                        toast({
-                            title: `Mentor Hint (Level ${hints.length + 1})`,
-                            description: "New guidance added to the Hint tab.",
-                        });
-                    }
+                    // Update Cache
+                    hintCache.current[cacheKey] = newHints;
+                    lastCodeAnalyzed.current = trimmedCode;
+                    hintLevel.current += 1; // Advance level for next time
                 }
-            } catch (error) {
+            } catch (error: any) {
+                const is429 = error?.message?.includes("429") || error?.status === 429;
                 toast({
                     variant: "destructive",
-                    title: "Hint Error",
-                    description: `The mentor is busy. Try again in a moment.`,
+                    title: "Hint Unavailable",
+                    description: is429 
+                        ? "AI hints are temporarily unavailable due to request limits. Please try again in a minute." 
+                        : "The mentor is busy. Try again shortly.",
                 });
             }
         });
@@ -270,6 +297,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         case 'logic': return <Lightbulb className="w-4 h-4 text-amber-500" />;
         case 'direction': return <Sparkles className="w-4 h-4 text-green-500" />;
         case 'optimization': return <Zap className="w-4 h-4 text-primary" />;
+        case 'progress': return <CheckCircle className="w-4 h-4 text-green-600" />;
         default: return <Info className="w-4 h-4" />;
       }
     };
@@ -280,6 +308,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         case 'logic': return "bg-amber-500/5 border-amber-500/20";
         case 'direction': return "bg-green-500/5 border-green-500/20";
         case 'optimization': return "bg-primary/5 border-primary/20";
+        case 'progress': return "bg-green-500/5 border-green-500/20";
         default: return "bg-secondary/5 border-border";
       }
     };
@@ -307,7 +336,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
-                        <Select onValueChange={handleLanguageChange} defaultValue={language}>
+                        <Select onValueChange={handleLanguageChange} value={language}>
                             <SelectTrigger className="w-[140px] h-9 bg-card border-none shadow-sm font-medium">
                                 <SelectValue placeholder="Language" />
                             </SelectTrigger>
@@ -351,7 +380,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         <Editor
                             height="100%"
                             language={language === 'cpp' ? 'cpp' : language}
-                            theme={theme}
+                            theme="vs-dark"
                             value={code}
                             onChange={(value) => setCode(value || "")}
                             options={{
@@ -360,14 +389,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                 scrollBeyondLastLine: false,
                                 automaticLayout: true,
                                 wordWrap: "on",
-                                folding: true,
-                                lineNumbers: "on",
-                                renderLineHighlight: "all",
-                                autoClosingBrackets: "always",
-                                matchBrackets: "always",
-                                fontLigatures: true,
-                                cursorStyle: "line",
-                                quickSuggestions: true,
                                 padding: { top: 16 }
                             }}
                         />
@@ -380,7 +401,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                             <Terminal className="w-4 h-4" /> Console
                         </TabsTrigger>
                         <TabsTrigger value="hints" className="flex items-center gap-2">
-                            <Lightbulb className="w-4 h-4 text-amber-500" /> Hints
+                            <Lightbulb className="w-4 h-4 text-amber-500" /> Hint
                         </TabsTrigger>
                         <TabsTrigger value="test-results" disabled={testResults.length === 0 && !isSubmitting} className="flex items-center gap-2">
                             <CheckCircle className="w-4 h-4" /> Tests
@@ -406,7 +427,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                                     Status: <span className={runResult.passed ? "text-green-500" : "text-destructive"}>{runResult.passed ? "Finished" : "Execution Error"}</span>
                                                 </div>
                                             </div>
-
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold text-muted-foreground">Standard Output:</p>
                                                 <pre className="p-3 bg-secondary/20 rounded-md text-foreground font-code min-h-[40px] whitespace-pre-wrap">
@@ -447,7 +467,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                             <div className="mt-0.5">{getHintIcon(hint.category)}</div>
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground opacity-70">
-                                                  {hint.category} {hint.category === 'syntax' ? 'Error' : 'Hint'} {idx + 1}
+                                                  {hint.category === 'syntax' ? '🔴 Syntax Error' : `💡 ${hint.category.toUpperCase()} HINT`}
                                                 </p>
                                                 <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
                                                   {hint.text}
@@ -459,7 +479,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {isGeneratingHint && (
                                         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-secondary/20 rounded-lg animate-pulse">
                                           <Loader2 className="w-4 h-4 animate-spin" />
-                                          <span>Mentor is analyzing your code...</span>
+                                          <span>Mentor is analyzing your progress...</span>
                                         </div>
                                     )}
 
@@ -472,7 +492,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                           className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 border border-amber-500/20"
                                         >
                                           {isGeneratingHint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                                          {hints.length === 0 ? "Get My First Hint" : "Show Next Hint"}
+                                          {hints.length === 0 ? "Get My First Hint" : "Get Next Hint"}
                                         </Button>
                                     </div>
                                 </div>
@@ -535,14 +555,11 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                             </h4>
                                             <p className="text-foreground leading-relaxed relative z-10">{aiFeedback.optimalSolutionHint}</p>
                                         </div>
-                                        
                                         <Separator className="bg-border/50" />
-                                        
                                         <div>
                                             <h4 className="font-bold text-base mb-2 text-foreground">Technical Breakdown</h4>
                                             <p className="text-muted-foreground leading-relaxed">{aiFeedback.explanation}</p>
                                         </div>
-                                        
                                         <div>
                                             <h4 className="font-bold text-base mb-2 text-foreground">Optimization Tips</h4>
                                             <p className="text-muted-foreground leading-relaxed">{aiFeedback.codeImprovements}</p>
@@ -556,4 +573,19 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             </div>
         </div>
     );
+
+    function handleGetAIFeedback() {
+        startGeneratingFeedback(async () => {
+            setActiveTab("ai-feedback");
+            try {
+                const feedback = await retry(() => explainAndImproveCode({
+                    code: code,
+                    language: language,
+                }));
+                setAIFeedback(feedback as AIFeedback);
+            } catch (error) {
+                toast({ variant: "destructive", title: "AI Feedback Error", description: "Generation failed." });
+            }
+        });
+    }
 }
