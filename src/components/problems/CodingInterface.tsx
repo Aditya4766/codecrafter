@@ -79,9 +79,11 @@ const getDistance = (a: string, b: string): number => {
 
 const findCorrection = (word: string, dictionary: string[]): string | null => {
   if (word.length < 3) return null;
+  const wordLower = word.toLowerCase();
   for (const target of dictionary) {
-    if (word.toLowerCase() === target.toLowerCase()) return target;
-    if (getDistance(word.toLowerCase(), target.toLowerCase()) === 1) return target;
+    const targetLower = target.toLowerCase();
+    if (wordLower === targetLower) return target;
+    if (getDistance(wordLower, targetLower) === 1) return target;
   }
   return null;
 };
@@ -89,10 +91,11 @@ const findCorrection = (word: string, dictionary: string[]): string | null => {
 const DICTIONARIES: Record<string, string[]> = {
   java: [
     'public', 'static', 'void', 'main', 'class', 'import', 'package', 'return', 
-    'System.out.println', 'System.out.print', 'Scanner', 'nextInt', 'nextLine', 
-    'Integer.parseInt', 'String', 'int', 'boolean', 'double', 'float', 'char', 
-    'Arrays.sort', 'Arrays.fill', 'ArrayList', 'HashMap', 'List', 'Map', 
-    'new', 'try', 'catch', 'finally', 'throw', 'if', 'else', 'for', 'while', 'length'
+    'System', 'out', 'println', 'print', 'Scanner', 'nextInt', 'nextLine', 
+    'Integer', 'parseInt', 'String', 'int', 'boolean', 'double', 'float', 'char', 
+    'Arrays', 'sort', 'fill', 'ArrayList', 'HashMap', 'List', 'Map', 
+    'new', 'try', 'catch', 'finally', 'throw', 'if', 'else', 'for', 'while', 'length',
+    'System.out.println', 'System.out.print'
   ],
   cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return', 'main', 'using', 'namespace', 'std::cout', 'std::endl', 'int', 'char', 'bool'],
   python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import', 'self', 'if', 'else', 'elif', 'while', 'for', 'in', 'list', 'dict', 'set', 'int', 'str', 'float', 'bool'],
@@ -206,18 +209,15 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         if (['java', 'cpp', 'javascript'].includes(lang)) {
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
-                // Skip empty lines, comments, imports, class/method definitions, and blocks
                 if (line === '' || line.startsWith('//') || line.startsWith('/*') || 
                     line.endsWith('{') || line.endsWith('}') || line.endsWith(';') || 
                     line.startsWith('import') || line.startsWith('package') || 
                     line.startsWith('#') || line.startsWith('class') || line.startsWith('public class')) {
                     continue;
                 }
-                // Check for lines that clearly look like statements
                 if (line.match(/^(int|String|var|let|const|System\.out|cout|return|public|private|protected)\s+/) || 
                    (lang === 'java' && line.includes('System.out')) ||
                    line.includes('=') || line.includes('(')) {
-                     // Check if it's a stand-alone line without a semicolon
                      if (!line.endsWith(')') && !line.endsWith(';') && !line.endsWith('{')) {
                         return {
                             text: `🔴 Missing semicolon (;) at the end of line ${i + 1}.\nSuggestion: Every statement in ${lang.toUpperCase()} must end with a semicolon.`,
@@ -233,11 +233,11 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const dictionary = DICTIONARIES[lang] || [];
         for (let i = 0; i < lines.length; i++) {
             const lineText = lines[i].trim();
-            if (lineText.startsWith('//') || lineText.startsWith('#') || lineText === '') continue;
+            if (lineText.startsWith('//') || lineText.startsWith('/*') || lineText.startsWith('*') || lineText.startsWith('#') || lineText === '') continue;
 
-            // Split by everything except alphanumeric, dots (for System.out), and underscores
-            const words = lineText.split(/[^a-zA-Z0-9_.]/).filter(w => w.length > 3);
-            for (const word of words) {
+            const rawWords = lineText.split(/[^a-zA-Z0-9_.]/).filter(w => w.length > 2);
+            for (const word of rawWords) {
+                // Check full word (including dotted accessors like System.out.printlnn)
                 const correction = findCorrection(word, dictionary);
                 if (correction && correction !== word) {
                     return {
@@ -246,10 +246,26 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         lineNumber: i + 1
                     };
                 }
+
+                // If it's a dotted string, check parts individually
+                if (word.includes('.')) {
+                    const parts = word.split('.');
+                    for (const part of parts) {
+                        if (part.length <= 2) continue;
+                        const partCorrection = findCorrection(part, dictionary);
+                        if (partCorrection && partCorrection !== part) {
+                            return {
+                                text: `🟠 Typo detected in "${word}" on line ${i + 1}.\nSuggestion: Did you mean "${partCorrection}"?`,
+                                category: 'typo',
+                                lineNumber: i + 1
+                            };
+                        }
+                    }
+                }
             }
         }
 
-        // 4. Common API Misuse Checks
+        // 4. Common API Misuse Checks (Java)
         if (lang === 'java') {
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -257,13 +273,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     return {
                         text: `🟡 API Misuse on line ${i + 1}.\nSuggestion: In Java, arrays use ".length", not ".length()". Strings use ".length()".`,
                         category: 'api',
-                        lineNumber: i + 1
-                    };
-                }
-                if (line.includes('System.out.printlnn')) {
-                     return {
-                        text: `🟠 Typo on line ${i + 1}.\nSuggestion: Did you mean "System.out.println"?`,
-                        category: 'typo',
                         lineNumber: i + 1
                     };
                 }
@@ -405,7 +414,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const handleGetHint = () => {
         const normalized = normalizeCode(code);
         
-        // Reset check
         if (normalized !== lastNormalizedCode.current) {
             lastNormalizedCode.current = normalized;
             hintLevel.current = 0;
@@ -413,16 +421,13 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             hintCache.current = {};
         }
 
-        // 1. LOCAL-FIRST STRATEGY: Run local syntax and typo checks
         const localError = performIntelligentLocalChecks(code, language);
         if (localError) {
-            // STOP IMMEDIATELY: Do not call Gemini if a local issue is found
             setHints(prev => [...prev, { ...localError, level: -1 }]);
             setActiveTab("hints");
             return;
         }
 
-        // 2. CACHE CHECK
         const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
         if (hintCache.current[cacheKey]) {
             setHints(prev => [...prev, hintCache.current[cacheKey]]);
@@ -431,7 +436,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             return;
         }
 
-        // 3. AI MENTOR: Call Gemini for logic progression
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
