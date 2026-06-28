@@ -20,7 +20,6 @@ export type ExecutionResult = {
 };
 
 const TIMEOUT_MS = 3000;
-const MAX_MEMORY_KB = 256 * 1024;
 const MAX_OUTPUT_SIZE = 1024 * 1024;
 
 export async function executeLocally(
@@ -56,7 +55,7 @@ export async function executeLocally(
         break;
       case 54: // C++
         fileName = 'main.cpp';
-        compileCmd = 'g++;'; // Using shell for C++ to handle output file flag easily
+        compileCmd = 'g++';
         compileArgs = ['main.cpp', '-O2', '-std=c++17', '-o', 'program'];
         runCmd = './program';
         break;
@@ -75,7 +74,7 @@ export async function executeLocally(
     // Compilation Phase
     if (compileCmd) {
       const compileResult = await runProcess(
-        compileCmd.replace(';', ''), 
+        compileCmd, 
         compileArgs, 
         tempDir, 
         '', 
@@ -95,14 +94,10 @@ export async function executeLocally(
     }
 
     // Execution Phase
-    // On Linux, we use ulimit to restrict memory. On other systems, we rely on Node's timeout.
-    const isLinux = process.platform === 'linux';
-    const finalCmd = isLinux ? `ulimit -v ${MAX_MEMORY_KB}; ${runCmd}` : runCmd;
-    
     const executionStart = Date.now();
     const runResult = await runProcess(
-      isLinux ? '/bin/sh' : runCmd,
-      isLinux ? ['-c', `${finalCmd} ${runArgs.join(' ')}`] : runArgs,
+      runCmd,
+      runArgs,
       tempDir,
       stdin,
       TIMEOUT_MS
@@ -138,7 +133,8 @@ async function runProcess(
   timeout: number
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd, shell: cmd.includes(';') || cmd.includes('/') });
+    // Use shell: false to ensure we execute the command directly and capture clean stdout.
+    const child = spawn(cmd, args, { cwd, shell: false });
     
     let stdout = '';
     let stderr = '';
@@ -190,7 +186,7 @@ function createResult(
     message: null,
     exit_code: exitCode,
     time,
-    memory: 1024, // Mock memory for MVP
+    memory: 1024, // Mock memory
     status: {
       id: statusId,
       description: statusDesc,
