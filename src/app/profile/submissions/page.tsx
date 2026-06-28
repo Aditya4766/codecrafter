@@ -1,9 +1,8 @@
-
 "use client";
 
 import { useState, useMemo } from "react";
-import { useCollection, useUser, useFirestore } from "@/firebase";
-import { collection, query, orderBy, where, deleteDoc, doc, writeBatch } from "firebase/firestore";
+import { useCollection, useUser, useFirestore, errorEmitter, FirestorePermissionError } from "@/firebase";
+import { collection, query, orderBy, deleteDoc, doc, writeBatch } from "firebase/firestore";
 import { 
   Table, 
   TableBody, 
@@ -36,7 +35,6 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -49,16 +47,16 @@ import {
   Trash2, 
   Eye, 
   Search, 
-  Filter, 
   Trophy, 
   Code2, 
-  AlertCircle, 
   Clock, 
   Activity,
-  ChevronDown
+  Lightbulb,
+  Zap,
+  BrainCircuit,
+  Loader2
 } from "lucide-react";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 import { Editor } from "@monaco-editor/react";
 
 export default function SubmissionsPage() {
@@ -79,7 +77,6 @@ export default function SubmissionsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDifficulty, setFilterDifficulty] = useState("all");
   const [filterLanguage, setFilterLanguage] = useState("all");
-  const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
 
   const filteredSubmissions = useMemo(() => {
     if (!submissions) return [];
@@ -97,9 +94,6 @@ export default function SubmissionsPage() {
     const total = submissions.length;
     const accepted = submissions.filter((s: any) => s.submissionStatus === "Accepted").length;
     const uniqueSolved = new Set(submissions.filter((s: any) => s.submissionStatus === "Accepted").map((s: any) => s.problemId)).size;
-    const wrong = submissions.filter((s: any) => s.submissionStatus === "Wrong Answer").length;
-    const compile = submissions.filter((s: any) => s.submissionStatus === "Compilation Error").length;
-    const runtime = submissions.filter((s: any) => s.submissionStatus === "Runtime Error").length;
     
     const languages = submissions.reduce((acc: any, s: any) => {
       acc[s.language] = (acc[s.language] || 0) + 1;
@@ -109,25 +103,36 @@ export default function SubmissionsPage() {
 
     const avgHints = submissions.reduce((acc: number, s: any) => acc + (s.AIHintLevelUsed || 0), 0) / (total || 1);
 
-    return { total, accepted, uniqueSolved, wrong, compile, runtime, favLang, avgHints };
+    return { total, accepted, uniqueSolved, favLang, avgHints };
   }, [submissions]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!db || !user) return;
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'submissions', id));
-    } catch (e) {
-      console.error("Delete failed", e);
-    }
+    const docRef = doc(db, 'users', user.uid, 'submissions', id);
+    deleteDoc(docRef)
+      .catch(async () => {
+        const permissionError = new FirestorePermissionError({
+          path: docRef.path,
+          operation: 'delete',
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      });
   };
 
-  const handleClearAll = async () => {
+  const handleClearAll = () => {
     if (!db || !user || !submissions) return;
     const batch = writeBatch(db);
     submissions.forEach((s: any) => {
       batch.delete(doc(db, 'users', user.uid, 'submissions', s.id));
     });
-    await batch.commit();
+    batch.commit()
+      .catch(async () => {
+        const permissionError = new FirestorePermissionError({
+          path: `/users/${user.uid}/submissions`,
+          operation: 'write',
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      });
   };
 
   const getStatusBadge = (status: string) => {
@@ -143,7 +148,7 @@ export default function SubmissionsPage() {
   const getDifficultyBadge = (difficulty: string) => {
     switch (difficulty) {
       case "Easy": return <Badge variant="secondary">Easy</Badge>;
-      case "Medium": return <Badge className="bg-amber-500">Medium</Badge>;
+      case "Medium": return <Badge className="bg-amber-500 text-white">Medium</Badge>;
       case "Hard": return <Badge variant="destructive">Hard</Badge>;
       default: return <Badge variant="outline">{difficulty}</Badge>;
     }
@@ -167,7 +172,6 @@ export default function SubmissionsPage() {
         <p className="text-muted-foreground">Track your progress and review past solutions.</p>
       </div>
 
-      {/* Analytics Stats */}
       {stats && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card className="shadow-sm border-none bg-primary/5">
@@ -215,7 +219,6 @@ export default function SubmissionsPage() {
         </div>
       )}
 
-      {/* Filters */}
       <Card className="border-none shadow-sm">
         <CardContent className="p-4 flex flex-col md:flex-row gap-4">
           <div className="flex-1 relative">
@@ -278,7 +281,7 @@ export default function SubmissionsPage() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleClearAll} className="bg-destructive hover:bg-destructive/90">Delete All</AlertDialogAction>
+                  <AlertDialogAction onClick={handleClearAll} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete All</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -286,7 +289,6 @@ export default function SubmissionsPage() {
         </CardContent>
       </Card>
 
-      {/* History Table */}
       <Card className="border-none shadow-sm overflow-hidden">
         <Table>
           <TableHeader className="bg-muted/50">
@@ -349,7 +351,7 @@ export default function SubmissionsPage() {
                           </DialogHeader>
                           
                           <div className="flex-1 grid md:grid-cols-[1fr_240px] gap-0 overflow-hidden border-t">
-                            <div className="bg-[#1e1e1e] flex flex-col">
+                            <div className="bg-[#1e1e1e] flex flex-col h-[400px]">
                               <div className="flex items-center gap-2 px-4 py-2 bg-background border-b text-xs font-semibold text-muted-foreground uppercase tracking-widest">
                                 <Code2 className="h-3 w-3" /> Submitted Code
                               </div>
@@ -423,7 +425,7 @@ export default function SubmissionsPage() {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDelete(s.id)} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                            <AlertDialogAction onClick={() => handleDelete(s.id)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
@@ -438,20 +440,3 @@ export default function SubmissionsPage() {
     </div>
   );
 }
-
-const Loader2 = ({ className }: { className?: string }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={cn("animate-spin", className)}
-  >
-    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-  </svg>
-);

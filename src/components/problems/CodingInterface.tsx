@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
@@ -34,7 +33,7 @@ import { runCodeWithTests } from "@/ai/flows/run-code-with-tests";
 import { generateHint } from "@/ai/flows/generate-hint";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { useFirestore, useUser } from "@/firebase";
+import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from "@/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 type Language = "python" | "java" | "cpp" | "javascript";
@@ -95,7 +94,6 @@ const DICTIONARIES: Record<string, string[]> = {
   javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return']
 };
 
-// Helper for retrying promises
 const retry = <T,>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> => {
     return new Promise((resolve, reject) => {
         const attempt = (n: number, currentDelay: number) => {
@@ -103,7 +101,7 @@ const retry = <T,>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> 
                 .then(resolve)
                 .catch(err => {
                     const errorMsg = (err?.message || "").toLowerCase();
-                    const isTransient = errorMsg.includes("503") || errorMsg.includes("overloaded") || errorMsg.includes("fetch failed");
+                    const isTransient = errorMsg.includes("429") || errorMsg.includes("overloaded") || errorMsg.includes("fetch failed");
                     if (n > 0 && isTransient) {
                         setTimeout(() => attempt(n - 1, currentDelay * 2), currentDelay);
                     } else {
@@ -122,14 +120,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [code, setCode] = useState(problem.starterCode.python);
     const [fontSize, setFontSize] = useState(14);
     
-    // States
     const [testResults, setTestResults] = useState<TestCaseResult[]>([]);
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
     const [runResult, setRunResult] = useState<{ output: string; passed?: boolean } | null>(null);
     const [hints, setHints] = useState<Hint[]>([]);
     
-    // Caching for Hints
     const lastNormalizedCode = useRef<string>("");
     const hintLevel = useRef<number>(0);
 
@@ -149,9 +145,9 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     const normalizeCode = (str: string) => {
         return str
-            .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "") // Remove C-style/Java/JS comments
-            .replace(/#.*/g, "") // Remove Python comments
-            .replace(/\s+/g, ""); // Remove all whitespace
+            .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "")
+            .replace(/#.*/g, "")
+            .replace(/\s+/g, "");
     };
 
     const handleLanguageChange = (value: string) => {
@@ -224,32 +220,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     };
                 }
             }
-
-            if (lang === 'java') {
-                if (lineText.includes('.length()') && !lineText.includes('String')) {
-                    return {
-                        text: `Potential misuse of .length().\nSuggestion: If this is an array, use .length without parentheses.`,
-                        category: 'api',
-                        lineNumber: i + 1
-                    };
-                }
-                if (lineText.includes('==') && (lineText.includes('"') || lineText.toLowerCase().includes('string'))) {
-                    return {
-                        text: `Using '==' for String comparison.\nSuggestion: Use .equals() to compare string values in Java.`,
-                        category: 'api',
-                        lineNumber: i + 1
-                    };
-                }
-            }
-            if (lang === 'python') {
-                if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith(':') && !lineText.includes('#')) {
-                    return {
-                        text: `Missing colon (:) after statement.\nSuggestion: Add a colon at the end of the line.`,
-                        category: 'syntax',
-                        lineNumber: i + 1
-                    };
-                }
-            }
         }
         return null;
     };
@@ -301,7 +271,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 if (executionError) {
                     setActiveTab("output");
                     setRunResult({ output: executionError, passed: false });
-                    // Save failed submission
                     saveSubmission("Compilation Error");
                     return;
                 }
@@ -321,29 +290,34 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         });
     };
 
-    const saveSubmission = async (status: string) => {
+    const saveSubmission = (status: string) => {
         if (!user || !db) return;
         
-        try {
-            const submissionData = {
-                userId: user.uid,
-                userName: user.displayName || 'Anonymous',
-                problemId: problem.id,
-                problemTitle: problem.title,
-                difficulty: problem.difficulty,
-                language: language,
-                submittedCode: code,
-                submissionStatus: status,
-                executionTime: "0.1s", // Simulated
-                memoryUsage: 1024, // Simulated
-                AIHintLevelUsed: hintLevel.current,
-                submittedAt: serverTimestamp(),
-            };
-            
-            await addDoc(collection(db, 'users', user.uid, 'submissions'), submissionData);
-        } catch (e) {
-            console.error("Error saving submission:", e);
-        }
+        const submissionData = {
+            userId: user.uid,
+            userName: user.displayName || 'Anonymous',
+            problemId: problem.id,
+            problemTitle: problem.title,
+            difficulty: problem.difficulty,
+            language: language,
+            submittedCode: code,
+            submissionStatus: status,
+            executionTime: "0.1s",
+            memoryUsage: 1024,
+            AIHintLevelUsed: hintLevel.current,
+            submittedAt: serverTimestamp(),
+        };
+        
+        const colRef = collection(db, 'users', user.uid, 'submissions');
+        addDoc(colRef, submissionData)
+            .catch(async () => {
+                const permissionError = new FirestorePermissionError({
+                    path: colRef.path,
+                    operation: 'create',
+                    requestResourceData: submissionData,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+            });
     };
 
     const handleGetHint = () => {

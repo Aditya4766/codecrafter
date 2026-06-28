@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -14,3 +13,6 @@ export function initializeFirebase() {
 
 export * from './provider';
 export * from './auth/use-user';
+export * from './firestore/use-collection';
+export * from './firestore/use-doc';
+export * from './errors';
