@@ -21,7 +21,9 @@ import {
   Terminal, 
   AlertCircle,
   Info,
-  Sparkles
+  Sparkles,
+  Type,
+  Code2
 } from "lucide-react";
 import { Editor } from "@monaco-editor/react";
 import { explainAndImproveCode } from "@/ai/flows/code-explanation-and-improvement";
@@ -47,10 +49,46 @@ type AIFeedback = {
     codeImprovements: string;
 };
 
+type HintCategory = 'syntax' | 'typo' | 'api' | 'runtime' | 'logic' | 'optimization';
+
 type Hint = {
   text: string;
-  category: 'syntax' | 'logic' | 'direction' | 'optimization' | 'progress';
+  category: HintCategory;
   lineNumber?: number;
+};
+
+// Fuzzy match helper for typos
+const getDistance = (a: string, b: string): number => {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 0; j <= b.length; matrix[0][j] = j++);
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+};
+
+const findCorrection = (word: string, dictionary: string[]): string | null => {
+  if (word.length < 3) return null;
+  for (const target of dictionary) {
+    if (word.toLowerCase() === target.toLowerCase()) return target;
+    if (getDistance(word.toLowerCase(), target.toLowerCase()) === 1) return target;
+  }
+  return null;
+};
+
+const DICTIONARIES: Record<string, string[]> = {
+  java: ['length', 'println', 'parseInt', 'Scanner', 'Arrays', 'equals', 'ArrayList', 'HashMap', 'Integer', 'String', 'System', 'public', 'static', 'void', 'main'],
+  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return'],
+  python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import'],
+  javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return']
 };
 
 // Helper for retrying promises
@@ -110,19 +148,32 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     };
 
     /**
-     * Performs a local syntax check to catch common structural errors 
-     * without calling the AI (Step 1 & 2 of the Hint Engine Redesign).
+     * Performs enhanced local analysis (Syntax, Typo, API Misuse)
      */
-    const performLocalSyntaxCheck = (code: string, lang: Language): Hint | null => {
+    const performIntelligentLocalChecks = (code: string, lang: Language): Hint | null => {
         const lines = code.split('\n');
         
-        // 1. Bracket/Parentheses balancing (All languages)
+        // 1. Syntax Check: Bracket/Parentheses/Quotes balancing
         const stack: {char: string, line: number}[] = [];
         const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
+        const quotesStack: {char: string, line: number}[] = [];
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             for (let j = 0; j < line.length; j++) {
                 const char = line[j];
+                // Quote balancing (simplistic)
+                if (char === '"' || char === "'") {
+                    if (quotesStack.length > 0 && quotesStack[quotesStack.length-1].char === char) {
+                        quotesStack.pop();
+                    } else {
+                        quotesStack.push({char, line: i+1});
+                    }
+                    continue;
+                }
+
+                if (quotesStack.length > 0) continue; // Ignore content inside quotes
+
                 if (['{', '[', '('].includes(char)) {
                     stack.push({char, line: i + 1});
                 } else if (['}', ']', ')'].includes(char)) {
@@ -137,6 +188,13 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 }
             }
         }
+        if (quotesStack.length > 0) {
+            return {
+                text: `Unclosed quote detected.\nSuggestion: Ensure your strings are properly terminated.`,
+                category: 'syntax',
+                lineNumber: quotesStack[0].line
+            };
+        }
         if (stack.length > 0) {
             const last = stack[stack.length - 1];
             return {
@@ -146,53 +204,65 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             };
         }
 
-        // 2. Language Specific Heuristics
-        if (lang === 'python') {
-            for (let i = 0; i < lines.length; i++) {
-                const lineText = lines[i].trim();
-                // Check for missing colon after if/else/def/for/while/class
-                if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith(':') && !lineText.includes('#')) {
+        // 2. Typo and API Misuse Checks
+        const dictionary = DICTIONARIES[lang] || [];
+        for (let i = 0; i < lines.length; i++) {
+            const lineText = lines[i].trim();
+            if (lineText.startsWith('//') || lineText.startsWith('#') || lineText === '') continue;
+
+            // Typo detection (identifier extraction)
+            const words = lineText.split(/[^a-zA-Z]/).filter(w => w.length > 3);
+            for (const word of words) {
+                const correction = findCorrection(word, dictionary);
+                if (correction && correction !== word) {
                     return {
-                        text: `Missing colon (:) after statement.\nSuggestion: Add a colon at the end of the line.`,
-                        category: 'syntax',
+                        text: `Unknown identifier "${word}".\nSuggestion: Did you mean "${correction}"?`,
+                        category: 'typo',
                         lineNumber: i + 1
                     };
                 }
             }
-        }
 
-        if (['java', 'cpp', 'javascript'].includes(lang)) {
-            for (let i = 0; i < lines.length; i++) {
-                const lineText = lines[i].trim();
-                // Very basic semicolon check (ignoring comments, empty lines, and lines ending with braces/colons)
-                if (lineText !== "" && 
-                    !lineText.endsWith('{') && 
-                    !lineText.endsWith('}') && 
-                    !lineText.endsWith(';') && 
-                    !lineText.startsWith('//') && 
-                    !lineText.startsWith('#') &&
-                    !lineText.startsWith('if') &&
-                    !lineText.startsWith('for') &&
-                    !lineText.startsWith('while') &&
-                    !lineText.startsWith('class') &&
-                    !lineText.startsWith('public') &&
-                    !lineText.startsWith('static') &&
-                    !lineText.includes('main')
-                ) {
-                    // Java/C++ strictly require semicolons for statements
-                    if (lang !== 'javascript') {
-                        return {
-                            text: `Missing semicolon (;).\nSuggestion: Add a semicolon at the end of the statement.`,
-                            category: 'syntax',
-                            lineNumber: i + 1
-                        };
-                    }
-                }
-                
-                // Catch Python keywords in C-style languages
-                if (lineText.startsWith('def ')) {
+            // Language Specific API Misuse Heuristics
+            if (lang === 'java') {
+                if (lineText.includes('.length()') && !lineText.includes('String')) {
                     return {
-                        text: `'def' keyword detected.\nSuggestion: Use '${lang === 'javascript' ? 'function' : 'proper method declaration'}' instead.`,
+                        text: `Potential misuse of .length().\nSuggestion: If this is an array, use .length without parentheses.`,
+                        category: 'api',
+                        lineNumber: i + 1
+                    };
+                }
+                if (lineText.includes('==') && (lineText.includes('"') || lineText.toLowerCase().includes('string'))) {
+                    return {
+                        text: `Using '==' for String comparison.\nSuggestion: Use .equals() to compare string values in Java.`,
+                        category: 'api',
+                        lineNumber: i + 1
+                    };
+                }
+                if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith('{') && !lineText.endsWith(';')) {
+                    // Check missing braces or semicolons for non-Python
+                     if (!lineText.includes('//') && !lineText.includes('{')) {
+                        // Very rough check
+                     }
+                }
+            }
+
+            if (lang === 'javascript') {
+                if (lineText.includes('documnt')) {
+                    return { text: `Typo: "documnt".\nSuggestion: Use "document".`, category: 'typo', lineNumber: i + 1 };
+                }
+                if (lineText.includes('consol.')) {
+                    return { text: `Typo: "consol".\nSuggestion: Use "console".`, category: 'typo', lineNumber: i + 1 };
+                }
+            }
+
+            if (lang === 'python') {
+                if (lineText.includes('.appendd')) {
+                   return { text: `Typo: ".appendd".\nSuggestion: Use ".append()".`, category: 'typo', lineNumber: i + 1 };
+                }
+                if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith(':') && !lineText.includes('#')) {
+                    return {
+                        text: `Missing colon (:) after statement.\nSuggestion: Add a colon at the end of the line.`,
                         category: 'syntax',
                         lineNumber: i + 1
                     };
@@ -267,7 +337,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const trimmedCode = code.trim();
         const cacheKey = `${problem.id}-${language}-${trimmedCode}`;
 
-        // 1. Check if code has changed significantly or is cached
+        // 1. Cache/Significant change check
         if (trimmedCode === lastCodeAnalyzed.current && hints.length > 0) {
             setActiveTab("hints");
             return;
@@ -279,17 +349,16 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             return;
         }
 
-        // 2. Perform LOCAL syntax check first (Step 1 & 2)
-        const localError = performLocalSyntaxCheck(trimmedCode, language);
+        // 2. Perform INTELLIGENT LOCAL checks (Step 1, 2, 3)
+        const localError = performIntelligentLocalChecks(trimmedCode, language);
         if (localError) {
             const newHints = [...hints, localError];
             setHints(newHints);
-            // We don't advance hint level for syntax errors
             setActiveTab("hints");
             return;
         }
 
-        // 3. Only if syntax is correct, call Gemini (Step 3)
+        // 3. Only if local checks pass, call Gemini (Logic/Optimization)
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
@@ -326,25 +395,39 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         });
     };
 
-    const getHintIcon = (category: string) => {
+    const getHintIcon = (category: HintCategory) => {
       switch (category) {
         case 'syntax': return <AlertCircle className="w-4 h-4 text-destructive" />;
-        case 'logic': return <Lightbulb className="w-4 h-4 text-amber-500" />;
-        case 'direction': return <Sparkles className="w-4 h-4 text-green-500" />;
+        case 'typo': return <Type className="w-4 h-4 text-orange-500" />;
+        case 'api': return <Code2 className="w-4 h-4 text-amber-500" />;
+        case 'runtime': return <Terminal className="w-4 h-4 text-blue-500" />;
+        case 'logic': return <Lightbulb className="w-4 h-4 text-green-500" />;
         case 'optimization': return <Zap className="w-4 h-4 text-primary" />;
-        case 'progress': return <CheckCircle className="w-4 h-4 text-green-600" />;
         default: return <Info className="w-4 h-4" />;
       }
     };
 
-    const getHintStyles = (category: string) => {
+    const getHintStyles = (category: HintCategory) => {
       switch (category) {
         case 'syntax': return "bg-destructive/5 border-destructive/20";
-        case 'logic': return "bg-amber-500/5 border-amber-500/20";
-        case 'direction': return "bg-green-500/5 border-green-500/20";
+        case 'typo': return "bg-orange-500/5 border-orange-500/20";
+        case 'api': return "bg-amber-500/5 border-amber-500/20";
+        case 'runtime': return "bg-blue-500/5 border-blue-500/20";
+        case 'logic': return "bg-green-500/5 border-green-500/20";
         case 'optimization': return "bg-primary/5 border-primary/20";
-        case 'progress': return "bg-green-500/5 border-green-500/20";
         default: return "bg-secondary/5 border-border";
+      }
+    };
+
+    const getCategoryLabel = (category: HintCategory) => {
+      switch (category) {
+        case 'syntax': return '🔴 Syntax Error';
+        case 'typo': return '🟠 Typo';
+        case 'api': return '🟡 API Misuse';
+        case 'runtime': return '🔵 Runtime Issue';
+        case 'logic': return '🟢 Logic Hint';
+        case 'optimization': return '⚡ Optimization';
+        default: return '💡 Info';
       }
     };
 
@@ -487,7 +570,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {hints.length === 0 && !isGeneratingHint && (
                                         <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60">
                                             <Lightbulb className="w-8 h-8" />
-                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll analyze your logic once syntax is correct.</p>
+                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll catch typos and API misuse instantly.</p>
                                         </div>
                                     )}
 
@@ -502,7 +585,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                             <div className="mt-0.5">{getHintIcon(hint.category)}</div>
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground opacity-70">
-                                                  {hint.category === 'syntax' ? '🔴 Syntax Error' : `💡 ${hint.category.toUpperCase()} HINT`}
+                                                  {getCategoryLabel(hint.category)}
                                                   {hint.lineNumber && ` • Line ${hint.lineNumber}`}
                                                 </p>
                                                 <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
@@ -515,7 +598,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {isGeneratingHint && (
                                         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-secondary/20 rounded-lg animate-pulse">
                                           <Loader2 className="w-4 h-4 animate-spin" />
-                                          <span>Mentor is analyzing your progress...</span>
+                                          <span>Assistant is analyzing your logic...</span>
                                         </div>
                                     )}
 

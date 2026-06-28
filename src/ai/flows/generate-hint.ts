@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview Provides intelligent, progressive coding hints focused on logic and algorithm.
+ * @fileOverview Provides intelligent, progressive coding hints focused strictly on logic and algorithm.
  *
  * - generateHint - A function that generates a corrective hint for the user.
  * - GenerateHintInput - The input type for the generateHint function.
@@ -21,7 +21,7 @@ export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>;
 
 const GenerateHintOutputSchema = z.object({
   hint: z.string().describe('The generated corrective hint text (MAX 3 short lines).'),
-  category: z.enum(['logic', 'direction', 'optimization', 'progress']).describe('The UI category for the hint.'),
+  category: z.enum(['logic', 'optimization', 'progress']).describe('The UI category for the hint.'),
 });
 export type GenerateHintOutput = z.infer<typeof GenerateHintOutputSchema>;
 
@@ -35,7 +35,13 @@ const prompt = ai.definePrompt({
   output: {schema: GenerateHintOutputSchema},
   prompt: `You are a high-level coding mentor. Your goal is to guide the student to the solution with extremely BRIEF, educational hints.
 
-IMPORTANT: The student's code has already passed a syntax check. Do NOT mention syntax errors. Focus entirely on logic, algorithms, and optimization.
+IMPORTANT: The student's code has already passed a rigorous local syntax and typo check. 
+NEVER mention:
+- Syntax errors (brackets, semicolons, etc.)
+- Typos or misspelled keywords
+- Basic API misuse (e.g., .length vs .length())
+
+Focus ENTIRELY on logic, algorithms, edge cases, and optimization.
 
 Context:
 Problem: {{{problemDescription}}}
@@ -45,19 +51,18 @@ Student's Code:
 {{{code}}}
 \`\`\`
 Hint Level: {{{hintLevel}}} 
-(0 = tiny clue, 1 = moderate guidance, 2 = clear approach, 3+ = algorithm walk-through without code)
+(0 = tiny logic clue, 1 = moderate guidance, 2 = clear algorithm approach, 3+ = deep algorithm walk-through without code)
 
 CONSTRAINTS:
 - MAXIMUM 3 short lines.
 - NO code snippets.
 - NO complete solutions.
-- NO syntax advice.
+- NO basic syntax/typo advice.
 
 TASK:
-1. Logic Analyze: Determine if the student is stuck, on the wrong path, or almost there.
+1. Logic Analyze: Determine if the student is stuck, on the wrong path, or almost there logically.
 2. Select Category:
    - 'logic': if they have a conceptual misunderstanding or edge case issue.
-   - 'direction': if they are on track but need the next step.
    - 'optimization': if they solved it but in an inefficient way (e.g., O(n^2) instead of O(n)).
    - 'progress': if they are very close.
 3. Generate Hint: Provide a hint appropriate for the Hint Level. 
