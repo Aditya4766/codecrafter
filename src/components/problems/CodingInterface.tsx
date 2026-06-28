@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
-import type { Problem } from "@/lib/problems";
+import type { Problem, TestCase } from "@/lib/problems";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,7 +29,6 @@ import {
 import { Editor } from "@monaco-editor/react";
 import { explainAndImproveCode } from "@/ai/flows/code-explanation-and-improvement";
 import { useToast } from "@/hooks/use-toast";
-import { generateTestCases } from "@/ai/flows/test-cases-generation";
 import { generateHint } from "@/ai/flows/generate-hint";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -44,6 +43,7 @@ type TestCaseResult = {
     expectedOutput: string;
     actualOutput: string;
     passed: boolean;
+    error?: string;
 };
 
 type AIFeedback = {
@@ -116,6 +116,8 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         setHints([]);
         lastNormalizedCode.current = "";
         hintLevel.current = 0;
+        setRunResult(null);
+        setTestResults([]);
     }, [problem, language]);
 
     const [isExecuting, startExecuting] = useTransition();
@@ -210,14 +212,23 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         startExecuting(async () => {
             setActiveTab("output");
             setRunResult(null);
+            
+            // Run against the first visible test case
+            const visibleCases = problem.testCases.filter(tc => !tc.hidden);
+            const testCase = visibleCases[0];
+            
+            if (!testCase) {
+                setRunResult({ output: "No test cases defined for this problem.", passed: false });
+                return;
+            }
+
             try {
-                const result = await executeCode(code, language);
-                
-                const output = result.stdout || result.stderr || result.compile_output || "No output";
-                const passed = result.status.id === 3;
+                const result = await executeCode(code, language, testCase.input);
+                const output = (result.stdout || result.stderr || result.compile_output || "No output").trim();
+                const passed = result.status.id === 3 && output === testCase.expectedOutput;
                 
                 setRunResult({ 
-                  output, 
+                  output: `Input:\n${testCase.input}\n\nOutput:\n${output}\n\nExpected:\n${testCase.expectedOutput}`, 
                   passed,
                   status: result.status.description 
                 });
@@ -237,55 +248,52 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setAIFeedback(null);
             setFeedbackError(false);
             
-            try {
-                // 1. Generate Test Cases via AI
-                const tc = await generateTestCases({
-                    problemDescription: problem.description,
-                    functionSignature: problem.functionSignature,
-                });
-                const generatedCases = tc.testCases;
+            const results: TestCaseResult[] = [];
+            let allPassed = true;
+            let finalStatus = "Accepted";
 
-                // 2. Real Execution via Piston
-                const results: TestCaseResult[] = [];
-                let overallStatus = "Accepted";
+            for (const tc of problem.testCases) {
+                try {
+                    const result = await executeCode(code, language, tc.input);
+                    const actualOutput = (result.stdout || "").trim();
+                    const passed = result.status.id === 3 && actualOutput === tc.expectedOutput.trim();
+                    
+                    if (!passed) {
+                        allPassed = false;
+                        if (result.status.id !== 3) finalStatus = result.status.description;
+                        else finalStatus = "Wrong Answer";
+                    }
 
-                // For simple problems, we just run the user's code. 
-                // A production judge would wrap the code in a driver script.
-                // We'll run the code once as-is to check for compilation/runtime errors.
-                const initialExec = await executeCode(code, language);
-                
-                if (initialExec.status.id !== 3) {
-                    overallStatus = initialExec.status.description;
-                    saveSubmission(overallStatus);
-                    setActiveTab("output");
-                    setRunResult({ 
-                        output: initialExec.compile_output || initialExec.stderr || "Execution Failed", 
-                        passed: false,
-                        status: overallStatus
+                    results.push({
+                        input: tc.input,
+                        expectedOutput: tc.expectedOutput,
+                        actualOutput: actualOutput || (result.stderr || result.compile_output || "No output"),
+                        passed,
+                        error: result.status.id !== 3 ? result.status.description : undefined
                     });
-                    return;
+                } catch (error: any) {
+                    allPassed = false;
+                    finalStatus = "Internal Error";
+                    results.push({
+                        input: tc.input,
+                        expectedOutput: tc.expectedOutput,
+                        actualOutput: "Execution Service Error",
+                        passed: false,
+                        error: "Internal Error"
+                    });
                 }
-
-                // Since we don't have a secure driver wrapper for all languages in this prototype,
-                // we'll "simulate" passing test cases if the initial execution succeeds.
-                // In a real judge, we'd run Piston for each case with stdin.
-                results.push(...generatedCases.map(tc => ({
-                    input: tc.input,
-                    expectedOutput: tc.expectedOutput,
-                    actualOutput: tc.expectedOutput, // Placeholder for real evaluation
-                    passed: true
-                })));
-
-                setTestResults(results);
-                saveSubmission(overallStatus);
-                toast({ title: "Success!", description: "All test cases passed." });
-                
-                // 3. Trigger Async AI Feedback
-                triggerAsyncFeedback();
-
-            } catch (error: any) {
-                toast({ variant: "destructive", title: "Submission Failed", description: "Execution service unavailable." });
             }
+
+            setTestResults(results);
+            saveSubmission(finalStatus);
+            
+            if (allPassed) {
+                toast({ title: "Success!", description: "All test cases passed." });
+            } else {
+                toast({ variant: "destructive", title: "Submission Failed", description: `Result: ${finalStatus}` });
+            }
+            
+            triggerAsyncFeedback();
         });
     };
 
@@ -295,7 +303,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 const feedback = await explainAndImproveCode({ code, language });
                 setAIFeedback(feedback as AIFeedback);
             } catch (error) {
-                console.error("Async AI Feedback failed:", error);
                 setFeedbackError(true);
             }
         });
@@ -368,7 +375,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 toast({
                     variant: "destructive",
                     title: "Hint Unavailable",
-                    description: "AI mentor is temporarily busy. Please try again in a moment.",
+                    description: "AI mentor is temporarily busy.",
                 });
             }
         });
@@ -501,17 +508,17 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         <Card className="h-full border-none bg-card shadow-sm flex flex-col">
                             <ScrollArea className="flex-1">
                                 <div className="p-4 font-code text-sm">
-                                    {isExecuting ? <div className="flex flex-col items-center justify-center h-24 gap-2 text-muted-foreground animate-pulse"><Loader2 className="h-6 w-6 animate-spin" /><p>Executing code on Piston sandbox...</p></div> : runResult ? (
+                                    {isExecuting ? <div className="flex flex-col items-center justify-center h-24 gap-2 text-muted-foreground animate-pulse"><Loader2 className="h-6 w-6 animate-spin" /><p>Executing code locally...</p></div> : runResult ? (
                                         <div className="space-y-4">
                                             <div className="flex flex-wrap gap-4 text-xs font-semibold text-muted-foreground uppercase tracking-widest bg-secondary/30 p-2 rounded">
                                                 Status: <span className={runResult.passed ? "text-green-500" : "text-destructive"}>{runResult.status || (runResult.passed ? "Finished" : "Error")}</span>
                                             </div>
                                             <div className="space-y-1">
-                                                <p className="text-xs font-bold text-muted-foreground">Standard Output / Compiler:</p>
+                                                <p className="text-xs font-bold text-muted-foreground">Standard Output / Details:</p>
                                                 <pre className="p-3 bg-secondary/20 rounded-md text-foreground font-code min-h-[40px] whitespace-pre-wrap">{runResult.output}</pre>
                                             </div>
                                         </div>
-                                    ) : <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60"><Terminal className="w-8 h-8" /><p>Click 'Run' to execute code.</p></div>}
+                                    ) : <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60"><Terminal className="w-8 h-8" /><p>Click 'Run' to execute against sample case.</p></div>}
                                 </div>
                             </ScrollArea>
                         </Card>
@@ -548,17 +555,23 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     <TabsContent value="test-results" className="flex-grow mt-2 overflow-hidden">
                         <Card className="h-full border-none bg-card shadow-sm flex flex-col">
                             <ScrollArea className="flex-1 p-4 space-y-4">
-                                {isSubmitting && <div className="flex flex-col items-center justify-center h-24 gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> <p>Evaluating submission...</p></div>}
+                                {isSubmitting && <div className="flex flex-col items-center justify-center h-24 gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> <p>Evaluating test cases...</p></div>}
                                 {testResults.map((result, index) => (
                                     <div key={index} className="p-3 border border-border/50 rounded-lg bg-card/50">
                                         <div className="flex items-center justify-between font-semibold mb-2">
-                                            <p className="text-xs text-muted-foreground">Test Case {index + 1}</p>
-                                            {result.passed ? <span className="flex items-center text-[11px] font-bold text-green-600 bg-green-500/10 px-2 py-0.5 rounded-full"><CheckCircle className="mr-1 h-3 w-3"/> PASSED</span> : <span className="flex items-center text-[11px] font-bold text-destructive bg-destructive/10 px-2 py-0.5 rounded-full"><XCircle className="mr-1 h-3 w-3"/> FAILED</span>}
+                                            <p className="text-xs text-muted-foreground">Test Case {index + 1} {problem.testCases[index].hidden ? "(Hidden)" : "(Visible)"}</p>
+                                            {result.passed ? <span className="flex items-center text-[11px] font-bold text-green-600 bg-green-500/10 px-2 py-0.5 rounded-full"><CheckCircle className="mr-1 h-3 w-3"/> PASSED</span> : <span className="flex items-center text-[11px] font-bold text-destructive bg-destructive/10 px-2 py-0.5 rounded-full"><XCircle className="mr-1 h-3 w-3"/> {result.error || "FAILED"}</span>}
                                         </div>
                                         <div className="text-xs text-muted-foreground font-code space-y-2 bg-muted/30 p-3 rounded-md">
-                                            <div><strong className="text-foreground">Input:</strong> {result.input}</div>
-                                            <div><strong className="text-foreground">Expected:</strong> {result.expectedOutput}</div>
-                                            <div><strong className={result.passed ? "text-green-600" : "text-destructive"}>Actual:</strong> {result.actualOutput}</div>
+                                            {problem.testCases[index].hidden ? (
+                                                <div className="italic">Hidden test case input/output concealed for academic integrity.</div>
+                                            ) : (
+                                                <>
+                                                    <div><strong className="text-foreground">Input:</strong> {result.input}</div>
+                                                    <div><strong className="text-foreground">Expected:</strong> {result.expectedOutput}</div>
+                                                    <div><strong className={result.passed ? "text-green-600" : "text-destructive"}>Actual:</strong> {result.actualOutput}</div>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
