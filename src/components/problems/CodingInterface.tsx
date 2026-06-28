@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo } from "react";
 import type { Problem } from "@/lib/problems";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +81,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
     const [runResult, setRunResult] = useState<{ output: string; passed?: boolean } | null>(null);
+    const [hintCount, setHintCount] = useState(0);
 
     const [isClient, setIsClient] = useState(false);
 
@@ -91,6 +91,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     useEffect(() => {
         setCode(problem.starterCode[language]);
+        setHintCount(0); // Reset hints when changing language
     }, [problem, language]);
 
     const [isExecuting, startExecuting] = useTransition();
@@ -111,7 +112,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setActiveTab("output");
             setRunResult(null);
             try {
-                // Using AI to simulate execution
                 const { results, executionError } = await retry(() => runCodeWithTests({
                     code,
                     language: language === 'javascript' ? 'python' : language as any,
@@ -220,25 +220,38 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const handleGetHint = () => {
         startGeneratingHint(async () => {
             try {
-                const { hint } = await retry(() => generateHint({
+                const { hint, isSyntaxError } = await retry(() => generateHint({
                     code: code,
                     language: language,
                     problemDescription: problem.description,
+                    hintLevel: hintCount,
                 }));
 
                 if (hint) {
-                    setCode(prev => prev + "\n\n" + hint);
-                    toast({
-                        title: "Specific Hint added",
-                        description: "Based on your current code, a new hint comment has been added.",
-                    });
+                    // Prepend hint at the top or append at the bottom depending on preference
+                    // Here we append with a separator
+                    setCode(prev => prev.trim() + "\n\n" + hint);
+                    
+                    if (isSyntaxError) {
+                        toast({
+                            variant: "destructive",
+                            title: "Mentor Check: Syntax Error",
+                            description: "Your code has a structural issue. Check the added comment.",
+                        });
+                    } else {
+                        toast({
+                            title: `Mentor Hint (Level ${hintCount + 1})`,
+                            description: "I've added a guide to help you move forward.",
+                        });
+                        setHintCount(prev => prev + 1);
+                    }
                 }
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
                 toast({
                     variant: "destructive",
                     title: "Hint Error",
-                    description: `There was an issue generating a hint: ${errorMessage}`,
+                    description: `The mentor is busy. Try again in a moment.`,
                 });
             }
         });
@@ -337,7 +350,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 <div className="flex justify-between items-center px-1">
                     <Button onClick={handleGetHint} disabled={isGeneratingHint} variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-primary">
                         {isGeneratingHint ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Lightbulb className="mr-2 h-3 w-3" />}
-                        Stuck? Get a Hint
+                        {hintCount === 0 ? "Stuck? Get a Hint" : `Get Next Hint (${hintCount})`}
                     </Button>
                 </div>
                 

@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview Provides coding hints that identify errors and guide the user.
+ * @fileOverview Provides intelligent coding hints acting as a mentor.
  *
  * - generateHint - A function that generates a corrective hint for the user.
  * - GenerateHintInput - The input type for the generateHint function.
@@ -15,11 +15,13 @@ const GenerateHintInputSchema = z.object({
   code: z.string().describe('The user\'s current code.'),
   language: z.string().describe('The programming language being used.'),
   problemDescription: z.string().describe('The description of the problem.'),
+  hintLevel: z.number().describe('The number of times the user has asked for a hint (0-based).'),
 });
 export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>;
 
 const GenerateHintOutputSchema = z.object({
   hint: z.string().describe('The generated corrective hint as a comment.'),
+  isSyntaxError: z.boolean().describe('Whether the hint addresses a syntax/compilation error.'),
 });
 export type GenerateHintOutput = z.infer<typeof GenerateHintOutputSchema>;
 
@@ -31,30 +33,42 @@ const prompt = ai.definePrompt({
   name: 'generateHintPrompt',
   input: {schema: GenerateHintInputSchema},
   output: {schema: GenerateHintOutputSchema},
-  prompt: `You are an expert coding tutor and technical debugger.
+  prompt: `You are an expert coding mentor, similar to those on LeetCode or top technical interview platforms. Your goal is to guide the student to the solution without giving it away.
 
-Analyze the user's current implementation for the following problem:
-
-Problem Description:
-{{{problemDescription}}}
-
-User's Current Code (Language: {{{language}}}):
+Current Context:
+Problem: {{{problemDescription}}}
+Language: {{{language}}}
+Student's Code:
 \`\`\`
 {{{code}}}
 \`\`\`
+Hint Level: {{{hintLevel}}} (0 = first hint, 1 = second, 2 = third, 3+ = detailed)
 
-Your Task:
-1. Check for syntax errors, common language-specific pitfalls, or logical bugs.
-2. If there is a syntax error (e.g., missing colon in Python, semicolon in C++, or type mismatch), identify it clearly.
-3. If the logic is incorrect or incomplete, explain why without giving away the entire solution.
-4. If the code is correct so far, suggest the immediate next logical step.
-5. Provide a short, helpful hint that guides them specifically on their current path.
-6. The hint MUST be formatted as a comment for the specified programming language (e.g., # for Python, // for Java/C++).
+Your Task (Follow strictly in order):
 
-Example Hint:
-# You have a syntax error: missing ":" at the end of your "if" statement.
-OR
-// Your logic for reversing the string is almost there, but remember that the loop should only go up to the middle of the array.`,
+1. SYNTAX CHECK:
+   - First, scan the code for syntax or compilation errors (e.g., missing colons, brackets, type mismatches, indentation errors).
+   - If errors exist, set isSyntaxError: true.
+   - Describe ONLY the syntax error. State the line number (if you can infer it) and explain WHY it is wrong.
+   - Suggest how to fix it (e.g., "Check your block indentation here") but do NOT provide the corrected line.
+   - RETURN IMMEDIATELY.
+
+2. PROGRESS ANALYSIS (If syntax is correct):
+   - Set isSyntaxError: false.
+   - Determine the student's stage: Not started, partially solved, stuck, wrong approach, or almost finished.
+
+3. PROGRESSIVE GUIDANCE (Based on Hint Level):
+   - Level 0 (First click): Provide a subtle nudge. Ask a question about their logic or mention a constraint they might have missed. "Have you considered how to handle negative numbers?"
+   - Level 1 (Second click): Provide a stronger hint. Point to a specific part of their algorithm that might be inefficient or missing a step.
+   - Level 2 (Third click): Provide detailed guidance. Explain a specific concept or data structure that would help, but still no code.
+   - Level 3+ (Final clicks): Provide the almost-complete algorithm in plain English. Describe the step-by-step logic so clearly they can implement it.
+
+MENTOR RULES:
+- Never reveal the complete code solution.
+- If the user is on the right track, start the hint with encouragement.
+- If the approach is fundamentally wrong (e.g., O(N^2) when O(N) is required), explain WHY it is unsuitable before suggesting an alternative.
+- Be concise, professional, and encouraging.
+- Format the final hint as a single block comment suitable for the language (e.g., /* ... */ for Java/C++/JS, # ... for Python).`,
 });
 
 const generateHintFlow = ai.defineFlow(
