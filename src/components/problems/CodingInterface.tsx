@@ -50,7 +50,7 @@ type AIFeedback = {
 type Hint = {
   text: string;
   category: 'syntax' | 'logic' | 'direction' | 'optimization' | 'progress';
-  isSyntaxError: boolean;
+  lineNumber?: number;
 };
 
 // Helper for retrying promises
@@ -109,58 +109,94 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         setLanguage(lang);
     };
 
+    /**
+     * Performs a local syntax check to catch common structural errors 
+     * without calling the AI (Step 1 & 2 of the Hint Engine Redesign).
+     */
     const performLocalSyntaxCheck = (code: string, lang: Language): Hint | null => {
-        // Simple brace/bracket matching
-        const stack: string[] = [];
+        const lines = code.split('\n');
+        
+        // 1. Bracket/Parentheses balancing (All languages)
+        const stack: {char: string, line: number}[] = [];
         const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
-        
-        for (let i = 0; i < code.length; i++) {
-            const char = code[i];
-            if (['{', '[', '('].includes(char)) {
-                stack.push(char);
-            } else if (['}', ']', ')'].includes(char)) {
-                if (stack.length === 0 || stack.pop() !== pairs[char]) {
-                    return {
-                        text: `🔴 Syntax Error\nUnmatched closing character '${char}' detected.\nCheck your structure before asking for a logical hint.`,
-                        category: 'syntax',
-                        isSyntaxError: true
-                    };
-                }
-            }
-        }
-        
-        if (stack.length > 0) {
-            return {
-                text: `🔴 Syntax Error\nMissing closing character for '${stack[stack.length - 1]}'.\nComplete your blocks to continue.`,
-                category: 'syntax',
-                isSyntaxError: true
-            };
-        }
-
-        // Basic language specific checks
-        if (lang === 'python') {
-            const lines = code.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].trim().endsWith(':') && i + 1 < lines.length) {
-                    const nextLine = lines[i + 1];
-                    if (nextLine.trim() !== "" && !nextLine.startsWith(' ') && !nextLine.startsWith('\t')) {
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            for (let j = 0; j < line.length; j++) {
+                const char = line[j];
+                if (['{', '[', '('].includes(char)) {
+                    stack.push({char, line: i + 1});
+                } else if (['}', ']', ')'].includes(char)) {
+                    const last = stack.pop();
+                    if (!last || last.char !== pairs[char]) {
                         return {
-                            text: `🔴 Syntax Error\nExpected an indented block after ':' on line ${i + 1}.`,
+                            text: `Unmatched closing '${char}' detected.\nSuggestion: Check your structure and ensure every bracket has a matching pair.`,
                             category: 'syntax',
-                            isSyntaxError: true
+                            lineNumber: i + 1
                         };
                     }
                 }
             }
         }
+        if (stack.length > 0) {
+            const last = stack[stack.length - 1];
+            return {
+                text: `Missing closing character for '${last.char}'.\nSuggestion: Close your blocks to continue.`,
+                category: 'syntax',
+                lineNumber: last.line
+            };
+        }
+
+        // 2. Language Specific Heuristics
+        if (lang === 'python') {
+            for (let i = 0; i < lines.length; i++) {
+                const lineText = lines[i].trim();
+                // Check for missing colon after if/else/def/for/while/class
+                if (/^(if|else|elif|def|for|while|class)\b/.test(lineText) && !lineText.endsWith(':') && !lineText.includes('#')) {
+                    return {
+                        text: `Missing colon (:) after statement.\nSuggestion: Add a colon at the end of the line.`,
+                        category: 'syntax',
+                        lineNumber: i + 1
+                    };
+                }
+            }
+        }
 
         if (['java', 'cpp', 'javascript'].includes(lang)) {
-            if (code.includes('def ')) {
-                return {
-                    text: `🔴 Syntax Error\n'def' keyword detected. Did you mean to use ${lang === 'javascript' ? 'function' : 'a method declaration'}?`,
-                    category: 'syntax',
-                    isSyntaxError: true
-                };
+            for (let i = 0; i < lines.length; i++) {
+                const lineText = lines[i].trim();
+                // Very basic semicolon check (ignoring comments, empty lines, and lines ending with braces/colons)
+                if (lineText !== "" && 
+                    !lineText.endsWith('{') && 
+                    !lineText.endsWith('}') && 
+                    !lineText.endsWith(';') && 
+                    !lineText.startsWith('//') && 
+                    !lineText.startsWith('#') &&
+                    !lineText.startsWith('if') &&
+                    !lineText.startsWith('for') &&
+                    !lineText.startsWith('while') &&
+                    !lineText.startsWith('class') &&
+                    !lineText.startsWith('public') &&
+                    !lineText.startsWith('static') &&
+                    !lineText.includes('main')
+                ) {
+                    // Java/C++ strictly require semicolons for statements
+                    if (lang !== 'javascript') {
+                        return {
+                            text: `Missing semicolon (;).\nSuggestion: Add a semicolon at the end of the statement.`,
+                            category: 'syntax',
+                            lineNumber: i + 1
+                        };
+                    }
+                }
+                
+                // Catch Python keywords in C-style languages
+                if (lineText.startsWith('def ')) {
+                    return {
+                        text: `'def' keyword detected.\nSuggestion: Use '${lang === 'javascript' ? 'function' : 'proper method declaration'}' instead.`,
+                        category: 'syntax',
+                        lineNumber: i + 1
+                    };
+                }
             }
         }
 
@@ -231,7 +267,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const trimmedCode = code.trim();
         const cacheKey = `${problem.id}-${language}-${trimmedCode}`;
 
-        // 1. Check Cache
+        // 1. Check if code has changed significantly or is cached
         if (trimmedCode === lastCodeAnalyzed.current && hints.length > 0) {
             setActiveTab("hints");
             return;
@@ -243,21 +279,21 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             return;
         }
 
-        // 2. Local Syntax Check
+        // 2. Perform LOCAL syntax check first (Step 1 & 2)
         const localError = performLocalSyntaxCheck(trimmedCode, language);
         if (localError) {
             const newHints = [...hints, localError];
             setHints(newHints);
-            hintCache.current[cacheKey] = newHints;
+            // We don't advance hint level for syntax errors
             setActiveTab("hints");
             return;
         }
 
-        // 3. AI Hint Generation
+        // 3. Only if syntax is correct, call Gemini (Step 3)
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
-                const { hint, isSyntaxError, category } = await retry(() => generateHint({
+                const { hint, category } = await retry(() => generateHint({
                     code: code,
                     language: language,
                     problemDescription: problem.description,
@@ -267,16 +303,15 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 if (hint) {
                     const newHint: Hint = { 
                         text: hint, 
-                        category: category as any, 
-                        isSyntaxError 
+                        category: category as any
                     };
                     const newHints = [...hints, newHint];
                     setHints(newHints);
                     
-                    // Update Cache
+                    // Update Cache & Level
                     hintCache.current[cacheKey] = newHints;
                     lastCodeAnalyzed.current = trimmedCode;
-                    hintLevel.current += 1; // Advance level for next time
+                    hintLevel.current += 1;
                 }
             } catch (error: any) {
                 const is429 = error?.message?.includes("429") || error?.status === 429;
@@ -452,7 +487,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {hints.length === 0 && !isGeneratingHint && (
                                         <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60">
                                             <Lightbulb className="w-8 h-8" />
-                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll analyze your code without giving it away.</p>
+                                            <p>Need a nudge? Click below for a smart hint.<br/>We'll analyze your logic once syntax is correct.</p>
                                         </div>
                                     )}
 
@@ -468,6 +503,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground opacity-70">
                                                   {hint.category === 'syntax' ? '🔴 Syntax Error' : `💡 ${hint.category.toUpperCase()} HINT`}
+                                                  {hint.lineNumber && ` • Line ${hint.lineNumber}`}
                                                 </p>
                                                 <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
                                                   {hint.text}

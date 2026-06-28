@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview Provides intelligent, progressive coding hints.
+ * @fileOverview Provides intelligent, progressive coding hints focused on logic and algorithm.
  *
  * - generateHint - A function that generates a corrective hint for the user.
  * - GenerateHintInput - The input type for the generateHint function.
@@ -20,9 +20,8 @@ const GenerateHintInputSchema = z.object({
 export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>;
 
 const GenerateHintOutputSchema = z.object({
-  hint: z.string().describe('The generated corrective hint text (2-4 short lines).'),
-  isSyntaxError: z.boolean().describe('Whether the hint addresses a structural syntax error.'),
-  category: z.enum(['syntax', 'logic', 'direction', 'optimization', 'progress']).describe('The UI category for the hint.'),
+  hint: z.string().describe('The generated corrective hint text (MAX 3 short lines).'),
+  category: z.enum(['logic', 'direction', 'optimization', 'progress']).describe('The UI category for the hint.'),
 });
 export type GenerateHintOutput = z.infer<typeof GenerateHintOutputSchema>;
 
@@ -36,6 +35,8 @@ const prompt = ai.definePrompt({
   output: {schema: GenerateHintOutputSchema},
   prompt: `You are a high-level coding mentor. Your goal is to guide the student to the solution with extremely BRIEF, educational hints.
 
+IMPORTANT: The student's code has already passed a syntax check. Do NOT mention syntax errors. Focus entirely on logic, algorithms, and optimization.
+
 Context:
 Problem: {{{problemDescription}}}
 Language: {{{language}}}
@@ -47,19 +48,19 @@ Hint Level: {{{hintLevel}}}
 (0 = tiny clue, 1 = moderate guidance, 2 = clear approach, 3+ = algorithm walk-through without code)
 
 CONSTRAINTS:
-- MAXIMUM 2-4 short lines.
+- MAXIMUM 3 short lines.
 - NO code snippets.
 - NO complete solutions.
-- Be encouraging but surgical in your advice.
+- NO syntax advice.
 
 TASK:
 1. Logic Analyze: Determine if the student is stuck, on the wrong path, or almost there.
 2. Select Category:
-   - 'logic': if they have a conceptual misunderstanding.
+   - 'logic': if they have a conceptual misunderstanding or edge case issue.
    - 'direction': if they are on track but need the next step.
-   - 'optimization': if they solved it but in an inefficient way.
+   - 'optimization': if they solved it but in an inefficient way (e.g., O(n^2) instead of O(n)).
    - 'progress': if they are very close.
-3. Generate Hint: Provide a hint appropriate for the Hint Level. If level is 0, stay very vague. If level 3, explain the logic of the algorithm.
+3. Generate Hint: Provide a hint appropriate for the Hint Level. 
 
 Return as JSON.`,
 });
