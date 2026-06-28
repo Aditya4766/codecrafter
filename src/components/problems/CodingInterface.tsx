@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useTransition, useEffect, useRef } from "react";
+import { useState, useTransition, useEffect } from "react";
 import type { Problem } from "@/lib/problems";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +20,6 @@ import {
   Zap, 
   Settings, 
   Terminal, 
-  Cpu, 
-  Clock, 
   AlertCircle 
 } from "lucide-react";
 import { Editor } from "@monaco-editor/react";
@@ -30,7 +28,6 @@ import { useToast } from "@/hooks/use-toast";
 import { generateTestCases } from "@/ai/flows/test-cases-generation";
 import { runCodeWithTests } from "@/ai/flows/run-code-with-tests";
 import { generateHint } from "@/ai/flows/generate-hint";
-import { executeCode, type Judge0SubmissionResult } from "@/lib/judge0";
 import { Separator } from "@/components/ui/separator";
 
 type Language = "python" | "java" | "cpp" | "javascript";
@@ -81,13 +78,10 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const [theme, setTheme] = useState("vs-dark");
     
     // Execution States
-    const [isExecuting, setIsExecuting] = useState(false);
-    const [executionResult, setExecutionResult] = useState<Judge0SubmissionResult | null>(null);
-    const [executionError, setExecutionLocalError] = useState<string | null>(null);
-
     const [testResults, setTestResults] = useState<TestCaseResult[]>([]);
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
     const [activeTab, setActiveTab] = useState("output");
+    const [runResult, setRunResult] = useState<{ output: string; passed?: boolean } | null>(null);
 
     const [isClient, setIsClient] = useState(false);
 
@@ -99,6 +93,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         setCode(problem.starterCode[language]);
     }, [problem, language]);
 
+    const [isExecuting, startExecuting] = useTransition();
     const [isSubmitting, startSubmitting] = useTransition();
     const [isGeneratingFeedback, startGeneratingFeedback] = useTransition();
     const [isGeneratingHint, startGeneratingHint] = useTransition();
@@ -111,28 +106,34 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         setCode(problem.starterCode[lang]);
     };
 
-    const handleRunCode = async () => {
-        if (!isClient) return;
-        
-        setIsExecuting(true);
-        setExecutionResult(null);
-        setExecutionLocalError(null);
-        setActiveTab("output");
+    const handleRunCode = () => {
+        startExecuting(async () => {
+            setActiveTab("output");
+            setRunResult(null);
+            try {
+                // Using AI to simulate execution
+                const { results, executionError } = await retry(() => runCodeWithTests({
+                    code,
+                    language: language === 'javascript' ? 'python' : language as any,
+                    problemDescription: problem.description,
+                    functionSignature: problem.functionSignature,
+                    testCases: [{ input: "Sample Input", expectedOutput: "Expected Output" }],
+                }));
 
-        try {
-            const result = await executeCode(code, language);
-            setExecutionResult(result);
-        } catch (error) {
-            const msg = error instanceof Error ? error.message : "Code execution failed";
-            setExecutionLocalError(msg);
-            toast({
-                variant: "destructive",
-                title: "Execution Error",
-                description: msg,
-            });
-        } finally {
-            setIsExecuting(false);
-        }
+                if (executionError) {
+                    setRunResult({ output: executionError, passed: false });
+                } else if (results && results.length > 0) {
+                    setRunResult({ output: results[0].actualOutput, passed: results[0].passed });
+                }
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : "AI execution failed";
+                toast({
+                    variant: "destructive",
+                    title: "Execution Error",
+                    description: msg,
+                });
+            }
+        });
     };
 
     const handleSubmitCode = () => {
@@ -158,7 +159,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
                 const { results, executionError } = await retry(() => runCodeWithTests({
                     code,
-                    language: language === 'javascript' ? 'python' : language as any, // fallback for flow support
+                    language: language === 'javascript' ? 'python' : language as any,
                     problemDescription: problem.description,
                     functionSignature: problem.functionSignature,
                     testCases: generatedCases,
@@ -360,52 +361,27 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     {isExecuting ? (
                                         <div className="flex flex-col items-center justify-center h-24 gap-2 text-muted-foreground animate-pulse">
                                             <Loader2 className="h-6 w-6 animate-spin" />
-                                            <p>Executing your code on Judge0...</p>
+                                            <p>Analyzing code execution via AI...</p>
                                         </div>
-                                    ) : executionError ? (
-                                        <div className="flex items-start gap-2 text-destructive bg-destructive/5 p-3 rounded-md">
-                                            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                                            <p>{executionError}</p>
-                                        </div>
-                                    ) : executionResult ? (
+                                    ) : runResult ? (
                                         <div className="space-y-4">
                                             <div className="flex flex-wrap gap-4 text-xs font-semibold text-muted-foreground uppercase tracking-widest bg-secondary/30 p-2 rounded">
                                                 <div className="flex items-center gap-1.5">
-                                                    <Clock className="w-3 h-3" /> Time: {executionResult.time || '0'}s
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                    <Cpu className="w-3 h-3" /> Memory: {executionResult.memory || '0'}KB
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                    Status: <span className={executionResult.status.id === 3 ? "text-green-500" : "text-destructive"}>{executionResult.status.description}</span>
+                                                    Status: <span className={runResult.passed ? "text-green-500" : "text-destructive"}>{runResult.passed ? "Finished" : "Execution Error"}</span>
                                                 </div>
                                             </div>
-                                            
-                                            {executionResult.compile_output && (
-                                                <div className="space-y-1">
-                                                    <p className="text-xs font-bold text-destructive/80">Compilation Error:</p>
-                                                    <pre className="bg-destructive/5 p-3 rounded-md text-destructive font-code whitespace-pre-wrap">{executionResult.compile_output}</pre>
-                                                </div>
-                                            )}
-                                            
-                                            {executionResult.stderr && (
-                                                <div className="space-y-1">
-                                                    <p className="text-xs font-bold text-destructive/80">Runtime Error:</p>
-                                                    <pre className="bg-destructive/5 p-3 rounded-md text-destructive font-code whitespace-pre-wrap">{executionResult.stderr}</pre>
-                                                </div>
-                                            )}
 
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold text-muted-foreground">Standard Output:</p>
                                                 <pre className="p-3 bg-secondary/20 rounded-md text-foreground font-code min-h-[40px] whitespace-pre-wrap">
-                                                    {executionResult.stdout || (executionResult.status.id === 3 ? "Process finished with exit code 0" : "No output")}
+                                                    {runResult.output || "No output"}
                                                 </pre>
                                             </div>
                                         </div>
                                     ) : (
                                         <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60">
                                             <Terminal className="w-8 h-8" />
-                                            <p>Click 'Run' to execute your code.<br/>Standard output and errors will appear here.</p>
+                                            <p>Click 'Run' to simulate execution.<br/>AI-generated output and errors will appear here.</p>
                                         </div>
                                     )}
                                 </div>
