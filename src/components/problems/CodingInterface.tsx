@@ -87,10 +87,16 @@ const findCorrection = (word: string, dictionary: string[]): string | null => {
 };
 
 const DICTIONARIES: Record<string, string[]> = {
-  java: ['length', 'println', 'parseInt', 'Scanner', 'Arrays', 'equals', 'ArrayList', 'HashMap', 'Integer', 'String', 'System', 'public', 'static', 'void', 'main', 'return', 'class', 'import', 'System.out.println'],
-  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return', 'main', 'using', 'namespace', 'std::cout', 'std::endl'],
-  python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import', 'self', 'if', 'else', 'elif', 'while', 'for', 'in'],
-  javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return', 'if', 'else', 'for', 'while', 'async', 'await', 'console.log']
+  java: [
+    'public', 'static', 'void', 'main', 'class', 'import', 'package', 'return', 
+    'System.out.println', 'System.out.print', 'Scanner', 'nextInt', 'nextLine', 
+    'Integer.parseInt', 'String', 'int', 'boolean', 'double', 'float', 'char', 
+    'Arrays.sort', 'Arrays.fill', 'ArrayList', 'HashMap', 'List', 'Map', 
+    'new', 'try', 'catch', 'finally', 'throw', 'if', 'else', 'for', 'while', 'length'
+  ],
+  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return', 'main', 'using', 'namespace', 'std::cout', 'std::endl', 'int', 'char', 'bool'],
+  python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import', 'self', 'if', 'else', 'elif', 'while', 'for', 'in', 'list', 'dict', 'set', 'int', 'str', 'float', 'bool'],
+  javascript: ['console.log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return', 'if', 'else', 'for', 'while', 'async', 'await']
 };
 
 export default function CodingInterface({ problem }: { problem: Problem }) {
@@ -148,12 +154,11 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
         const quotesStack: {char: string, line: number}[] = [];
 
-        // Structural Balancing
+        // 1. Structural Balancing
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             for (let j = 0; j < line.length; j++) {
                 const char = line[j];
-                // Quote balancing (ignoring escaped quotes)
                 if ((char === '"' || char === "'") && (j === 0 || line[j-1] !== '\\')) {
                     if (quotesStack.length > 0 && quotesStack[quotesStack.length-1].char === char) {
                         quotesStack.pop();
@@ -163,7 +168,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     continue;
                 }
                 
-                if (quotesStack.length > 0) continue; // Skip brackets inside strings
+                if (quotesStack.length > 0) continue; 
 
                 if (['{', '[', '('].includes(char)) {
                     stack.push({char, line: i + 1});
@@ -197,16 +202,42 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             };
         }
 
-        // Typo Detection
+        // 2. Language-specific Semicolon detection (Java, C++, JS)
+        if (['java', 'cpp', 'javascript'].includes(lang)) {
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                // Skip empty lines, comments, imports, class/method definitions, and blocks
+                if (line === '' || line.startsWith('//') || line.startsWith('/*') || 
+                    line.endsWith('{') || line.endsWith('}') || line.endsWith(';') || 
+                    line.startsWith('import') || line.startsWith('package') || 
+                    line.startsWith('#') || line.startsWith('class') || line.startsWith('public class')) {
+                    continue;
+                }
+                // Check for lines that clearly look like statements
+                if (line.match(/^(int|String|var|let|const|System\.out|cout|return|public|private|protected)\s+/) || 
+                   (lang === 'java' && line.includes('System.out')) ||
+                   line.includes('=') || line.includes('(')) {
+                     // Check if it's a stand-alone line without a semicolon
+                     if (!line.endsWith(')') && !line.endsWith(';') && !line.endsWith('{')) {
+                        return {
+                            text: `🔴 Missing semicolon (;) at the end of line ${i + 1}.\nSuggestion: Every statement in ${lang.toUpperCase()} must end with a semicolon.`,
+                            category: 'syntax',
+                            lineNumber: i + 1
+                        };
+                     }
+                }
+            }
+        }
+
+        // 3. Typo Detection
         const dictionary = DICTIONARIES[lang] || [];
         for (let i = 0; i < lines.length; i++) {
             const lineText = lines[i].trim();
-            // Skip comments and empty lines
             if (lineText.startsWith('//') || lineText.startsWith('#') || lineText === '') continue;
 
+            // Split by everything except alphanumeric, dots (for System.out), and underscores
             const words = lineText.split(/[^a-zA-Z0-9_.]/).filter(w => w.length > 3);
             for (const word of words) {
-                // Fuzzy match against dictionary
                 const correction = findCorrection(word, dictionary);
                 if (correction && correction !== word) {
                     return {
@@ -218,13 +249,21 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             }
         }
 
-        // Common API Misuse Checks
+        // 4. Common API Misuse Checks
         if (lang === 'java') {
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes('.length()') && /\w+\[\]/.test(lines[i])) {
+                const line = lines[i];
+                if (line.includes('.length()') && /\w+\[\]/.test(line)) {
                     return {
                         text: `🟡 API Misuse on line ${i + 1}.\nSuggestion: In Java, arrays use ".length", not ".length()". Strings use ".length()".`,
                         category: 'api',
+                        lineNumber: i + 1
+                    };
+                }
+                if (line.includes('System.out.printlnn')) {
+                     return {
+                        text: `🟠 Typo on line ${i + 1}.\nSuggestion: Did you mean "System.out.println"?`,
+                        category: 'typo',
                         lineNumber: i + 1
                     };
                 }
@@ -377,13 +416,13 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         // 1. LOCAL-FIRST STRATEGY: Run local syntax and typo checks
         const localError = performIntelligentLocalChecks(code, language);
         if (localError) {
-            // STOP: Do not call Gemini if a local issue is found
+            // STOP IMMEDIATELY: Do not call Gemini if a local issue is found
             setHints(prev => [...prev, { ...localError, level: -1 }]);
             setActiveTab("hints");
             return;
         }
 
-        // 2. CACHE CHECK: If logic hint for this level exists
+        // 2. CACHE CHECK
         const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
         if (hintCache.current[cacheKey]) {
             setHints(prev => [...prev, hintCache.current[cacheKey]]);
@@ -392,7 +431,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             return;
         }
 
-        // 3. AI MENTOR: Call Gemini for algorithmic/logic progression
+        // 3. AI MENTOR: Call Gemini for logic progression
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
@@ -412,7 +451,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         level: hintLevel.current 
                     };
                     
-                    // Cache and increment
                     const currentCacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
                     hintCache.current[currentCacheKey] = newHint;
                     hintLevel.current += 1;
