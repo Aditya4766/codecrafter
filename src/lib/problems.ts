@@ -1,3 +1,4 @@
+
 export type Problem = {
     id: string;
     title: string;
@@ -7,6 +8,7 @@ export type Problem = {
         python: string;
         java: string;
         cpp: string;
+        javascript: string;
     };
     functionSignature: string;
 };
@@ -46,17 +48,29 @@ class Solution:
     def twoSum(self, nums: List[int], target: int) -> List[int]:
         # Your code here
         pass
+
+# Test code
+if __name__ == "__main__":
+    sol = Solution()
+    print(sol.twoSum([2, 7, 11, 15], 9))
 `,
-            java: `import java.util.vector;
+            java: `import java.util.*;
 
 class Solution {
     public int[] twoSum(int[] nums, int target) {
         // Your code here
         return new int[]{};
     }
+
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        int[] result = sol.twoSum(new int[]{2, 7, 11, 15}, 9);
+        System.out.println(Arrays.toString(result));
+    }
 }
 `,
             cpp: `#include <vector>
+#include <iostream>
 
 class Solution {
 public:
@@ -65,6 +79,26 @@ public:
         return {};
     }
 };
+
+int main() {
+    Solution sol;
+    std::vector<int> nums = {2, 7, 11, 15};
+    std::vector<int> result = sol.twoSum(nums, 9);
+    for (int i : result) std::cout << i << " ";
+    return 0;
+}
+`,
+            javascript: `/**
+ * @param {number[]} nums
+ * @param {number} target
+ * @return {number[]}
+ */
+var twoSum = function(nums, target) {
+    // Your code here
+};
+
+// Test code
+console.log(twoSum([2, 7, 11, 15], 9));
 `
         },
         functionSignature: 'twoSum(nums: List[int], target: int) -> List[int]'
@@ -83,7 +117,7 @@ public:
 <strong>Output:</strong> ["o","l","l","e","h"]</pre>
 
 <h3 class="font-semibold mt-4 mb-2">Example 2:</h3>
-<pre class="bg-muted p-2 rounded-md font-code text-sm"><strong>Input:</strong> s = ["H","a","n","n","a","h"]
+<pre class="bg-muted p-2 rounded-md font-code text-sm"><strong>Input:</strong> s = ["H","a","n","n","a","H"]
 <strong>Output:</strong> ["h","a","n","n","a","H"]</pre>
 
 <h3 class="font-semibold mt-4 mb-2">Constraints:</h3>
@@ -102,16 +136,31 @@ class Solution:
         """
         # Your code here
         pass
+
+# Test code
+if __name__ == "__main__":
+    sol = Solution()
+    s = ["h","e","l","l","o"]
+    sol.reverseString(s)
+    print(s)
 `,
-            java: `import java.util.vector;
+            java: `import java.util.*;
 
 class Solution {
     public void reverseString(char[] s) {
         // Your code here
     }
+
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        char[] s = {'h', 'e', 'l', 'l', 'o'};
+        sol.reverseString(s);
+        System.out.println(Arrays.toString(s));
+    }
 }
 `,
             cpp: `#include <vector>
+#include <iostream>
 
 class Solution {
 public:
@@ -119,6 +168,27 @@ public:
         // Your code here
     }
 };
+
+int main() {
+    Solution sol;
+    std::vector<char> s = {'h', 'e', 'l', 'l', 'o'};
+    sol.reverseString(s);
+    for (char c : s) std::cout << c;
+    return 0;
+}
+`,
+            javascript: `/**
+ * @param {character[]} s
+ * @return {void} Do not return anything, modify s in-place instead.
+ */
+var reverseString = function(s) {
+    // Your code here
+};
+
+// Test code
+let s = ["h","e","l","l","o"];
+reverseString(s);
+console.log(s);
 `
         },
         functionSignature: 'reverseString(s: List[str]) -> None'
@@ -160,15 +230,26 @@ public:
     def isValid(self, s: str) -> bool:
         # Your code here
         pass
+
+# Test code
+if __name__ == "__main__":
+    sol = Solution()
+    print(sol.isValid("()[]{}"))
 `,
             java: `class Solution {
     public boolean isValid(String s) {
         // Your code here
         return false;
     }
+
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        System.out.println(sol.isValid("()[]{}"));
+    }
 }
 `,
             cpp: `#include <string>
+#include <iostream>
 
 class Solution {
 public:
@@ -177,6 +258,23 @@ public:
         return false;
     }
 };
+
+int main() {
+    Solution sol;
+    std::cout << std::boolalpha << sol.isValid("()[]{}");
+    return 0;
+}
+`,
+            javascript: `/**
+ * @param {string} s
+ * @return {boolean}
+ */
+var isValid = function(s) {
+    // Your code here
+};
+
+// Test code
+console.log(isValid("()[]{}"));
 `
         },
         functionSignature: 'isValid(s: str) -> bool'
