@@ -1,10 +1,8 @@
 
 /**
- * Judge0 API Integration Utility
+ * Judge0 API Integration Utility (Frontend Bridge)
+ * Now calls internal API routes to keep sensitive keys secure on the server.
  */
-
-const JUDGE0_BASE_URL = 'https://judge0-ce.p.rapidapi.com';
-const RAPIDAPI_KEY = process.env.NEXT_PUBLIC_RAPIDAPI_KEY || ''; // Users should set this in .env
 
 export type Judge0Language = 'python' | 'java' | 'cpp' | 'javascript';
 
@@ -29,21 +27,16 @@ export type Judge0SubmissionResult = {
   };
 };
 
+/**
+ * Executes code by calling the internal Next.js API routes.
+ */
 export async function executeCode(code: string, language: Judge0Language): Promise<Judge0SubmissionResult> {
   const languageId = LANGUAGE_MAP[language];
   
-  if (!RAPIDAPI_KEY) {
-    throw new Error('RapidAPI Key is missing. Please set NEXT_PUBLIC_RAPIDAPI_KEY in your .env file.');
-  }
-
-  // 1. Create submission
-  const createResponse = await fetch(`${JUDGE0_BASE_URL}/submissions?base64_encoded=false&wait=false`, {
+  // 1. Create submission via internal API
+  const createResponse = await fetch('/api/judge0/submit', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'X-RapidAPI-Key': RAPIDAPI_KEY,
-      'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       source_code: code,
       language_id: languageId,
@@ -51,27 +44,23 @@ export async function executeCode(code: string, language: Judge0Language): Promi
   });
 
   if (!createResponse.ok) {
-    const err = await createResponse.text();
-    throw new Error(`Failed to create submission: ${err}`);
+    const errData = await createResponse.json();
+    throw new Error(errData.error || 'Failed to create submission');
   }
 
   const { token } = await createResponse.json();
 
-  // 2. Poll for results
+  // 2. Poll for results via internal API
   let result: Judge0SubmissionResult | null = null;
-  const maxRetries = 20;
+  const maxRetries = 30; // Increased retries for slower executions
   let retries = 0;
 
   while (retries < maxRetries) {
-    const pollResponse = await fetch(`${JUDGE0_BASE_URL}/submissions/${token}?base64_encoded=false`, {
-      headers: {
-        'X-RapidAPI-Key': RAPIDAPI_KEY,
-        'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-      }
-    });
+    const pollResponse = await fetch(`/api/judge0/result?token=${token}`);
 
     if (!pollResponse.ok) {
-      throw new Error('Failed to fetch submission status');
+      const errData = await pollResponse.json();
+      throw new Error(errData.error || 'Failed to fetch submission status');
     }
 
     const data = await pollResponse.json();
@@ -83,7 +72,8 @@ export async function executeCode(code: string, language: Judge0Language): Promi
     }
 
     retries++;
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Use exponential-ish backoff for polling
+    await new Promise(resolve => setTimeout(resolve, 1000 + (retries * 100)));
   }
 
   if (!result) {
