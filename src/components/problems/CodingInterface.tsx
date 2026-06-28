@@ -60,7 +60,6 @@ type Hint = {
   level?: number;
 };
 
-// Fuzzy match helper for typos
 const getDistance = (a: string, b: string): number => {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
@@ -101,7 +100,7 @@ const retry = <T,>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> 
                 .then(resolve)
                 .catch(err => {
                     const errorMsg = (err?.message || "").toLowerCase();
-                    const isTransient = errorMsg.includes("429") || errorMsg.includes("overloaded") || errorMsg.includes("fetch failed");
+                    const isTransient = errorMsg.includes("429") || errorMsg.includes("overloaded") || errorMsg.includes("fetch failed") || errorMsg.includes("quota");
                     if (n > 0 && isTransient) {
                         setTimeout(() => attempt(n - 1, currentDelay * 2), currentDelay);
                     } else {
@@ -122,6 +121,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     
     const [testResults, setTestResults] = useState<TestCaseResult[]>([]);
     const [aiFeedback, setAIFeedback] = useState<AIFeedback | null>(null);
+    const [feedbackError, setFeedbackError] = useState(false);
     const [activeTab, setActiveTab] = useState("output");
     const [runResult, setRunResult] = useState<{ output: string; passed?: boolean } | null>(null);
     const [hints, setHints] = useState<Hint[]>([]);
@@ -242,8 +242,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 } else if (results && results.length > 0) {
                     setRunResult({ output: results[0].actualOutput, passed: results[0].passed });
                 }
-            } catch (error) {
-                toast({ variant: "destructive", title: "Execution Error", description: "Simulation failed. Please try again." });
+            } catch (error: any) {
+                const isAIUnavailable = error?.message?.includes("429") || error?.status === 429 || error?.message?.includes("quota");
+                setRunResult({ 
+                    output: isAIUnavailable 
+                        ? "AI code execution is temporarily unavailable due to high demand. Please try again in a moment." 
+                        : "Execution simulation failed. Please try again.", 
+                    passed: false 
+                });
             }
         });
     };
@@ -253,39 +259,73 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setActiveTab("test-results");
             setTestResults([]);
             setAIFeedback(null);
+            setFeedbackError(false);
             
             try {
-                const { testCases: generatedCases } = await retry(() => generateTestCases({
-                    problemDescription: problem.description,
-                    functionSignature: problem.functionSignature,
-                }));
+                // 1. Generate Test Cases (Evaluation Phase)
+                let generatedCases;
+                try {
+                   const tc = await retry(() => generateTestCases({
+                        problemDescription: problem.description,
+                        functionSignature: problem.functionSignature,
+                    }));
+                   generatedCases = tc.testCases;
+                } catch (e: any) {
+                    toast({ variant: "destructive", title: "Evaluation Service Busy", description: "The AI evaluator is overloaded. Please try submitting again in a moment." });
+                    return;
+                }
 
-                const { results, executionError } = await retry(() => runCodeWithTests({
-                    code,
-                    language: language === 'javascript' ? 'python' : language as any,
-                    problemDescription: problem.description,
-                    functionSignature: problem.functionSignature,
-                    testCases: generatedCases,
-                }));
+                // 2. Run Tests
+                let runResults;
+                try {
+                  const rr = await retry(() => runCodeWithTests({
+                      code,
+                      language: language === 'javascript' ? 'python' : language as any,
+                      problemDescription: problem.description,
+                      functionSignature: problem.functionSignature,
+                      testCases: generatedCases,
+                  }));
+                  runResults = rr;
+                } catch (e: any) {
+                  toast({ variant: "destructive", title: "Evaluation Failed", description: "We couldn't run your code against the tests. Please try again." });
+                  return;
+                }
 
-                if (executionError) {
+                if (runResults.executionError) {
                     setActiveTab("output");
-                    setRunResult({ output: executionError, passed: false });
+                    setRunResult({ output: runResults.executionError, passed: false });
                     saveSubmission("Compilation Error");
                     return;
                 }
 
-                setTestResults(results);
-                const allPassed = results.every(r => r.passed);
+                setTestResults(runResults.results);
+                const allPassed = runResults.results.every(r => r.passed);
+                const finalStatus = allPassed ? "Accepted" : "Wrong Answer";
                 
                 if (allPassed) {
                   toast({ title: "Success!", description: "All test cases passed." });
-                  saveSubmission("Accepted");
-                } else {
-                  saveSubmission("Wrong Answer");
                 }
+                
+                // 3. Store Submission (Persistence Phase)
+                saveSubmission(finalStatus);
+
+                // 4. Async AI Feedback (Best Effort Phase)
+                triggerAsyncFeedback();
+
+            } catch (error: any) {
+                toast({ variant: "destructive", title: "Submission Failed", description: "An unexpected error occurred. Your attempt was not recorded." });
+            }
+        });
+    };
+
+    const triggerAsyncFeedback = () => {
+        startGeneratingFeedback(async () => {
+            try {
+                const feedback = await retry(() => explainAndImproveCode({ code, language }));
+                setAIFeedback(feedback as AIFeedback);
             } catch (error) {
-                toast({ variant: "destructive", title: "Submission Failed", description: "Could not evaluate code." });
+                console.error("Async AI Feedback failed:", error);
+                setFeedbackError(true);
             }
         });
     };
@@ -352,12 +392,12 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     setHints(prev => [...prev, { text: hint, category: category as any, level: hintLevel.current }]);
                 }
             } catch (error: any) {
-                const is429 = error?.message?.includes("429") || error?.status === 429;
+                const is429 = error?.message?.includes("429") || error?.status === 429 || error?.message?.includes("quota");
                 toast({
                     variant: "destructive",
                     title: "Hint Unavailable",
                     description: is429 
-                        ? "AI hints are temporarily unavailable. Try again in a minute." 
+                        ? "AI hints are temporarily unavailable due to request limits. Please try again in a minute." 
                         : "The mentor is busy. Try again shortly.",
                 });
             }
@@ -484,7 +524,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         <TabsTrigger value="output" className="flex items-center gap-2"><Terminal className="w-4 h-4" /> Console</TabsTrigger>
                         <TabsTrigger value="hints" className="flex items-center gap-2"><Lightbulb className="w-4 h-4 text-amber-500" /> Hint</TabsTrigger>
                         <TabsTrigger value="test-results" disabled={testResults.length === 0 && !isSubmitting} className="flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Tests</TabsTrigger>
-                        <TabsTrigger value="ai-feedback" disabled={testResults.length === 0 || isSubmitting} className="flex items-center gap-2 text-accent"><BrainCircuit className="w-4 h-4" /> AI Feedback</TabsTrigger>
+                        <TabsTrigger value="ai-feedback" disabled={testResults.length === 0 && !isGeneratingFeedback && !aiFeedback && !feedbackError} className="flex items-center gap-2 text-accent"><BrainCircuit className="w-4 h-4" /> AI Feedback</TabsTrigger>
                     </TabsList>
                     
                     <TabsContent value="output" className="flex-grow mt-2 overflow-hidden">
@@ -559,15 +599,22 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     <TabsContent value="ai-feedback" className="flex-grow mt-2 overflow-hidden">
                         <Card className="h-full border-none bg-card shadow-sm flex flex-col">
                             <ScrollArea className="flex-1 p-4">
-                                {(!aiFeedback && !isGeneratingFeedback) && (
+                                {feedbackError && (
+                                    <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6 text-muted-foreground">
+                                        <AlertCircle className="h-8 w-8 text-orange-500" />
+                                        <p className="font-semibold">AI feedback is temporarily unavailable.</p>
+                                        <Button variant="outline" size="sm" onClick={triggerAsyncFeedback} className="mt-2">Try Analysis Again</Button>
+                                    </div>
+                                )}
+                                {(!aiFeedback && !isGeneratingFeedback && !feedbackError) && (
                                      <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-6">
                                         <div className="p-4 rounded-full bg-accent/10"><Zap className="h-10 w-10 text-accent" /></div>
                                         <div><h3 className="font-bold text-xl mb-1">Deeper Analysis</h3><p className="text-sm text-muted-foreground mb-6">Review code complexity and the most optimal solution path.</p></div>
-                                        <Button onClick={handleGetAIFeedback} disabled={isGeneratingFeedback} className="bg-accent hover:bg-accent/90"><BrainCircuit className="mr-2 h-4 w-4" />Analyze & Suggest Optimal</Button>
+                                        <Button onClick={triggerAsyncFeedback} disabled={isGeneratingFeedback} className="bg-accent hover:bg-accent/90"><BrainCircuit className="mr-2 h-4 w-4" />Analyze & Suggest Optimal</Button>
                                      </div>
                                 )}
                                 {isGeneratingFeedback && <div className="flex flex-col items-center justify-center h-32 gap-3 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin text-accent" /> <p>Consulting AI expert...</p></div>}
-                                {aiFeedback && (
+                                {aiFeedback && !feedbackError && (
                                     <div className="prose prose-sm dark:prose-invert max-w-none space-y-8 pb-4">
                                         <div className="p-5 bg-accent/5 rounded-xl border border-accent/20 relative overflow-hidden group">
                                             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Zap className="h-20 w-20 text-accent" /></div>
@@ -586,16 +633,4 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             </div>
         </div>
     );
-
-    function handleGetAIFeedback() {
-        startGeneratingFeedback(async () => {
-            setActiveTab("ai-feedback");
-            try {
-                const feedback = await retry(() => explainAndImproveCode({ code, language }));
-                setAIFeedback(feedback as AIFeedback);
-            } catch (error) {
-                toast({ variant: "destructive", title: "AI Feedback Error", description: "Generation failed." });
-            }
-        });
-    }
 }
