@@ -30,7 +30,7 @@ export type Judge0SubmissionResult = {
 /**
  * Executes code by calling the internal Next.js API routes.
  */
-export async function executeCode(code: string, language: Judge0Language): Promise<Judge0SubmissionResult> {
+export async function executeCode(code: string, language: Judge0Language, stdin?: string): Promise<Judge0SubmissionResult> {
   const languageId = LANGUAGE_MAP[language];
   
   // 1. Create submission via internal API
@@ -40,6 +40,7 @@ export async function executeCode(code: string, language: Judge0Language): Promi
     body: JSON.stringify({
       source_code: code,
       language_id: languageId,
+      stdin: stdin
     })
   });
 
@@ -52,7 +53,7 @@ export async function executeCode(code: string, language: Judge0Language): Promi
 
   // 2. Poll for results via internal API
   let result: Judge0SubmissionResult | null = null;
-  const maxRetries = 30; // Increased retries for slower executions
+  const maxRetries = 10; 
   let retries = 0;
 
   while (retries < maxRetries) {
@@ -72,8 +73,7 @@ export async function executeCode(code: string, language: Judge0Language): Promi
     }
 
     retries++;
-    // Use exponential-ish backoff for polling
-    await new Promise(resolve => setTimeout(resolve, 1000 + (retries * 100)));
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   if (!result) {

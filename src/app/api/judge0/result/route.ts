@@ -1,6 +1,6 @@
 
 /**
- * @fileOverview API route to fetch execution results using the Piston API.
+ * API route to fetch execution results using the Piston API.
  * Maps Piston's response to the Judge0 format expected by the frontend.
  */
 
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   try {
     // 1. Decode the stateless token
     const submissionData = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
-    const { source_code, language_id } = submissionData;
+    const { source_code, language_id, stdin } = submissionData;
 
     const config = LANGUAGE_MAP[language_id] || LANGUAGE_MAP[71]; // Default to Python
 
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
         language: config.language,
         version: config.version,
         files: [{ name: config.filename, content: source_code }],
+        stdin: stdin || ""
       }),
     });
 
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     let statusId = 3;
     let statusDescription = 'Accepted';
 
-    // Check for compilation errors (for compiled languages like C++, Java)
+    // Check for compilation errors
     if (data.compile && data.compile.code !== 0) {
       statusId = 6;
       statusDescription = 'Compilation Error';
@@ -69,8 +70,8 @@ export async function GET(request: NextRequest) {
       compile_output: data.compile?.output || null,
       message: data.run.signal ? `Terminated by signal ${data.run.signal}` : null,
       exit_code: data.run.code,
-      time: "0.1", // Piston doesn't always provide precise timing in standard output
-      memory: 1024, // Dummy value as Piston doesn't provide memory usage
+      time: "0.1", 
+      memory: 1024,
       status: {
         id: statusId,
         description: statusDescription,

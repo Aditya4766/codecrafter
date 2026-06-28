@@ -1,11 +1,9 @@
+
 'use server';
 
 /**
- * @fileOverview A flow for running user-submitted code against a set of test cases.
- *
- * - runCodeWithTests - A function that executes code and evaluates it against test cases.
- * - RunCodeWithTestsInput - The input type for the runCodeWithTests function.
- * - RunCodeWithTestsOutput - The return type for the runCodeWithTests function.
+ * @fileOverview A placeholder flow for run-code-with-tests.
+ * This file is kept for backward compatibility but execution is now handled by Piston.
  */
 
 import { ai } from '@/ai/genkit';
@@ -39,48 +37,9 @@ const RunCodeWithTestsOutputSchema = z.object({
 export type RunCodeWithTestsOutput = z.infer<typeof RunCodeWithTestsOutputSchema>;
 
 export async function runCodeWithTests(input: RunCodeWithTestsInput): Promise<RunCodeWithTestsOutput> {
-  return runCodeWithTestsFlow(input);
+  // Return dummy results as this flow is no longer responsible for execution
+  return {
+    results: [],
+    executionError: "Execution is now handled by the backend sandbox service."
+  };
 }
-
-const prompt = ai.definePrompt({
-  name: 'runCodeWithTestsPrompt',
-  input: { schema: RunCodeWithTestsInputSchema },
-  output: { schema: RunCodeWithTestsOutputSchema },
-  prompt: `You are an expert code evaluator. You will be given a coding problem, a user's code solution, and a series of test cases. Your task is to execute the user's code against each test case and determine if it passes.
-
-Language: {{{language}}}
-
-Problem Description:
-{{{problemDescription}}}
-
-Function Signature:
-\`\`\`
-{{{functionSignature}}}
-\`\`\`
-
-User's Code:
-\`\`\`{{{language}}}
-{{{code}}}
-\`\`\`
-
-Test Cases:
-{{#each testCases}}
-- Input: {{{this.input}}}, Expected Output: {{{this.expectedOutput}}}
-{{/each}}
-
-Please execute the code for each test case and return the actual output and whether it matches the expected output. If the code fails to run or produces an error for a specific test case, capture that as the actual output. If the code has a syntax error or fails to compile, return an executionError.
-
-Your response must be a JSON object matching the output schema.`,
-});
-
-const runCodeWithTestsFlow = ai.defineFlow(
-  {
-    name: 'runCodeWithTestsFlow',
-    inputSchema: RunCodeWithTestsInputSchema,
-    outputSchema: RunCodeWithTestsOutputSchema,
-  },
-  async (input) => {
-    const { output } = await prompt(input);
-    return output!;
-  }
-);
