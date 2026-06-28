@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
@@ -118,6 +117,8 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         hintLevel.current = 0;
         setRunResult(null);
         setTestResults([]);
+        setAIFeedback(null);
+        setFeedbackError(false);
     }, [problem, language]);
 
     const [isExecuting, startExecuting] = useTransition();
@@ -213,7 +214,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             setActiveTab("output");
             setRunResult(null);
             
-            // Run against the first visible test case
             const visibleCases = problem.testCases.filter(tc => !tc.hidden);
             const testCase = visibleCases[0];
             
@@ -245,8 +245,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         startSubmitting(async () => {
             setActiveTab("test-results");
             setTestResults([]);
-            setAIFeedback(null);
-            setFeedbackError(false);
             
             const results: TestCaseResult[] = [];
             let allPassed = true;
@@ -292,13 +290,13 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             } else {
                 toast({ variant: "destructive", title: "Submission Failed", description: `Result: ${finalStatus}` });
             }
-            
-            triggerAsyncFeedback();
         });
     };
 
-    const triggerAsyncFeedback = () => {
+    const handleRequestAIFeedback = () => {
         startGeneratingFeedback(async () => {
+            setAIFeedback(null);
+            setFeedbackError(false);
             try {
                 const feedback = await explainAndImproveCode({ code, language });
                 setAIFeedback(feedback as AIFeedback);
@@ -501,7 +499,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         <TabsTrigger value="output" className="flex items-center gap-2"><Terminal className="w-4 h-4" /> Console</TabsTrigger>
                         <TabsTrigger value="hints" className="flex items-center gap-2"><Lightbulb className="w-4 h-4 text-amber-500" /> Hint</TabsTrigger>
                         <TabsTrigger value="test-results" disabled={testResults.length === 0 && !isSubmitting} className="flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Tests</TabsTrigger>
-                        <TabsTrigger value="ai-feedback" disabled={testResults.length === 0 && !isGeneratingFeedback && !aiFeedback && !feedbackError} className="flex items-center gap-2 text-accent"><BrainCircuit className="w-4 h-4" /> AI Feedback</TabsTrigger>
+                        <TabsTrigger value="ai-feedback" className="flex items-center gap-2 text-accent"><BrainCircuit className="w-4 h-4" /> AI Feedback</TabsTrigger>
                     </TabsList>
                     
                     <TabsContent value="output" className="flex-grow mt-2 overflow-hidden">
@@ -586,14 +584,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                                     <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6 text-muted-foreground">
                                         <AlertCircle className="h-8 w-8 text-orange-500" />
                                         <p className="font-semibold">AI feedback is temporarily unavailable.</p>
-                                        <Button variant="outline" size="sm" onClick={triggerAsyncFeedback} className="mt-2">Try Analysis Again</Button>
+                                        <Button variant="outline" size="sm" onClick={handleRequestAIFeedback} className="mt-2">Try Analysis Again</Button>
                                     </div>
                                 )}
                                 {(!aiFeedback && !isGeneratingFeedback && !feedbackError) && (
                                      <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-6">
                                         <div className="p-4 rounded-full bg-accent/10"><Zap className="h-10 w-10 text-accent" /></div>
                                         <div><h3 className="font-bold text-xl mb-1">Deeper Analysis</h3><p className="text-sm text-muted-foreground mb-6">Review code complexity and the most optimal solution path.</p></div>
-                                        <Button onClick={triggerAsyncFeedback} disabled={isGeneratingFeedback} className="bg-accent hover:bg-accent/90"><BrainCircuit className="mr-2 h-4 w-4" />Analyze & Suggest Optimal</Button>
+                                        <Button onClick={handleRequestAIFeedback} disabled={isGeneratingFeedback} className="bg-accent hover:bg-accent/90"><BrainCircuit className="mr-2 h-4 w-4" />Analyze & Suggest Optimal</Button>
                                      </div>
                                 )}
                                 {isGeneratingFeedback && <div className="flex flex-col items-center justify-center h-32 gap-3 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin text-accent" /> <p>Consulting AI expert...</p></div>}
