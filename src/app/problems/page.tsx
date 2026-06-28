@@ -33,10 +33,10 @@ export default function ProblemsPage() {
       <h1 className="text-3xl font-bold mb-8 font-headline">Practice Problems</h1>
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {problems.map((problem) => (
-          <Card key={problem.id} className="flex flex-col hover:shadow-lg transition-shadow">
+          <Card key={problem.id} className="flex flex-col h-full hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="flex justify-between items-start">
-                <CardTitle>{problem.title}</CardTitle>
+                <CardTitle className="line-clamp-1">{problem.title}</CardTitle>
                 <Badge 
                   variant={problem.difficulty === 'Easy' ? 'secondary' : problem.difficulty === 'Medium' ? 'default' : 'destructive'}
                   className={problem.difficulty === 'Medium' ? 'bg-amber-500 text-white' : ''}
@@ -47,7 +47,7 @@ export default function ProblemsPage() {
             </CardHeader>
             <CardContent className="flex-grow">
               <div 
-                className="prose prose-sm text-muted-foreground max-w-none break-words whitespace-normal prose-pre:whitespace-pre-wrap"
+                className="prose prose-sm text-muted-foreground max-w-none line-clamp-4 overflow-hidden"
                 dangerouslySetInnerHTML={{ __html: problem.description }} 
               />
             </CardContent>

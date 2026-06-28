@@ -515,7 +515,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     return (
         <div className="grid md:grid-cols-2 gap-4 p-4 h-[calc(100vh-4rem)] bg-background">
-            <Card className="flex flex-col border-none shadow-md bg-card">
+            <Card className="flex flex-col border-none shadow-md bg-card overflow-hidden">
                 <ScrollArea className="flex-1">
                     <CardContent className="p-6">
                         <div className="flex items-center gap-2 mb-4">
