@@ -49,7 +49,7 @@ type AIFeedback = {
     codeImprovements: string;
 };
 
-type HintCategory = 'syntax' | 'typo' | 'api' | 'runtime' | 'logic' | 'optimization';
+type HintCategory = 'syntax' | 'typo' | 'api' | 'runtime' | 'logic' | 'optimization' | 'progress';
 
 type Hint = {
   text: string;
@@ -398,6 +398,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         case 'runtime': return <Terminal className="w-4 h-4 text-blue-500" />;
         case 'logic': return <Lightbulb className="w-4 h-4 text-green-500" />;
         case 'optimization': return <Zap className="w-4 h-4 text-primary" />;
+        case 'progress': return <CheckCircle className="w-4 h-4 text-green-600" />;
         default: return <Info className="w-4 h-4" />;
       }
     };
@@ -410,11 +411,14 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         case 'runtime': return "bg-blue-500/5 border-blue-500/20";
         case 'logic': return "bg-green-500/5 border-green-500/20";
         case 'optimization': return "bg-primary/5 border-primary/20";
+        case 'progress': return "bg-green-600/5 border-green-600/20";
         default: return "bg-secondary/5 border-border";
       }
     };
 
     const getCategoryLabel = (hint: Hint) => {
+      if (hint.category === 'progress') return "✅ Excellent Work!";
+      
       if (hint.level !== undefined && hint.level >= 0) {
           if (hint.level === 3) return "💡 Final Hint";
           return `💡 Hint ${hint.level + 1} of 4`;
