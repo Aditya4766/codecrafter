@@ -87,10 +87,10 @@ const findCorrection = (word: string, dictionary: string[]): string | null => {
 };
 
 const DICTIONARIES: Record<string, string[]> = {
-  java: ['length', 'println', 'parseInt', 'Scanner', 'Arrays', 'equals', 'ArrayList', 'HashMap', 'Integer', 'String', 'System', 'public', 'static', 'void', 'main', 'return', 'class', 'import'],
-  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return', 'main', 'using', 'namespace'],
+  java: ['length', 'println', 'parseInt', 'Scanner', 'Arrays', 'equals', 'ArrayList', 'HashMap', 'Integer', 'String', 'System', 'public', 'static', 'void', 'main', 'return', 'class', 'import', 'System.out.println'],
+  cpp: ['cout', 'endl', 'vector', 'string', 'cin', 'push_back', 'size', 'begin', 'end', 'std', 'include', 'return', 'main', 'using', 'namespace', 'std::cout', 'std::endl'],
   python: ['print', 'append', 'range', 'enumerate', 'split', 'join', 'strip', 'len', 'input', 'return', 'def', 'class', 'import', 'self', 'if', 'else', 'elif', 'while', 'for', 'in'],
-  javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return', 'if', 'else', 'for', 'while', 'async', 'await']
+  javascript: ['console', 'log', 'document', 'window', 'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'map', 'filter', 'reduce', 'function', 'const', 'let', 'return', 'if', 'else', 'for', 'while', 'async', 'await', 'console.log']
 };
 
 export default function CodingInterface({ problem }: { problem: Problem }) {
@@ -148,21 +148,13 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
         const quotesStack: {char: string, line: number}[] = [];
 
-        // Check semicolons for Java/C++
-        if (lang === 'java' || lang === 'cpp') {
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (line && !line.endsWith('{') && !line.endsWith('}') && !line.endsWith(';') && !line.startsWith('//') && !line.startsWith('#') && !line.startsWith('public') && !line.startsWith('class') && !line.startsWith('for') && !line.startsWith('if') && !line.startsWith('while')) {
-                     // Potential missing semicolon
-                }
-            }
-        }
-
+        // Structural Balancing
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             for (let j = 0; j < line.length; j++) {
                 const char = line[j];
-                if (char === '"' || char === "'") {
+                // Quote balancing (ignoring escaped quotes)
+                if ((char === '"' || char === "'") && (j === 0 || line[j-1] !== '\\')) {
                     if (quotesStack.length > 0 && quotesStack[quotesStack.length-1].char === char) {
                         quotesStack.pop();
                     } else {
@@ -170,14 +162,16 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     }
                     continue;
                 }
-                if (quotesStack.length > 0) continue; 
+                
+                if (quotesStack.length > 0) continue; // Skip brackets inside strings
+
                 if (['{', '[', '('].includes(char)) {
                     stack.push({char, line: i + 1});
                 } else if (['}', ']', ')'].includes(char)) {
                     const last = stack.pop();
                     if (!last || last.char !== pairs[char]) {
                         return {
-                            text: `Unmatched closing '${char}' detected.\nSuggestion: Check your structure and ensure every bracket has a matching pair.`,
+                            text: `🔴 Unmatched closing '${char}' detected on line ${i + 1}.\nSuggestion: Check your structure and ensure every bracket has a matching pair.`,
                             category: 'syntax',
                             lineNumber: i + 1
                         };
@@ -185,39 +179,58 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                 }
             }
         }
+        
         if (quotesStack.length > 0) {
             return {
-                text: `Unclosed quote detected.\nSuggestion: Ensure your strings are properly terminated.`,
+                text: `🔴 Unclosed quote (${quotesStack[0].char}) detected on line ${quotesStack[0].line}.\nSuggestion: Ensure your strings are properly terminated.`,
                 category: 'syntax',
                 lineNumber: quotesStack[0].line
             };
         }
+        
         if (stack.length > 0) {
             const last = stack[stack.length - 1];
             return {
-                text: `Missing closing character for '${last.char}'.\nSuggestion: Close your blocks to continue.`,
+                text: `🔴 Missing closing character for '${last.char}' from line ${last.line}.\nSuggestion: Close your blocks to continue.`,
                 category: 'syntax',
                 lineNumber: last.line
             };
         }
 
+        // Typo Detection
         const dictionary = DICTIONARIES[lang] || [];
         for (let i = 0; i < lines.length; i++) {
             const lineText = lines[i].trim();
+            // Skip comments and empty lines
             if (lineText.startsWith('//') || lineText.startsWith('#') || lineText === '') continue;
 
-            const words = lineText.split(/[^a-zA-Z]/).filter(w => w.length > 3);
+            const words = lineText.split(/[^a-zA-Z0-9_.]/).filter(w => w.length > 3);
             for (const word of words) {
+                // Fuzzy match against dictionary
                 const correction = findCorrection(word, dictionary);
                 if (correction && correction !== word) {
                     return {
-                        text: `Unknown identifier "${word}".\nSuggestion: Did you mean "${correction}"?`,
+                        text: `🟠 Unknown identifier "${word}" on line ${i + 1}.\nSuggestion: Did you mean "${correction}"?`,
                         category: 'typo',
                         lineNumber: i + 1
                     };
                 }
             }
         }
+
+        // Common API Misuse Checks
+        if (lang === 'java') {
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes('.length()') && /\w+\[\]/.test(lines[i])) {
+                    return {
+                        text: `🟡 API Misuse on line ${i + 1}.\nSuggestion: In Java, arrays use ".length", not ".length()". Strings use ".length()".`,
+                        category: 'api',
+                        lineNumber: i + 1
+                    };
+                }
+            }
+        }
+
         return null;
     };
 
@@ -353,31 +366,33 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
     const handleGetHint = () => {
         const normalized = normalizeCode(code);
         
-        // Check if code has changed significantly
+        // Reset check
         if (normalized !== lastNormalizedCode.current) {
             lastNormalizedCode.current = normalized;
             hintLevel.current = 0;
             setHints([]);
             hintCache.current = {};
-        } else {
-            // Check if we have the next level cached for this code
-            const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current + 1}`;
-            if (hintCache.current[cacheKey]) {
-                hintLevel.current += 1;
-                setHints(prev => [...prev, hintCache.current[cacheKey]]);
-                setActiveTab("hints");
-                return;
-            }
         }
 
-        // Run local checks first
+        // 1. LOCAL-FIRST STRATEGY: Run local syntax and typo checks
         const localError = performIntelligentLocalChecks(code, language);
         if (localError) {
-            setHints([{ ...localError, level: -1 }]);
+            // STOP: Do not call Gemini if a local issue is found
+            setHints(prev => [...prev, { ...localError, level: -1 }]);
             setActiveTab("hints");
             return;
         }
 
+        // 2. CACHE CHECK: If logic hint for this level exists
+        const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
+        if (hintCache.current[cacheKey]) {
+            setHints(prev => [...prev, hintCache.current[cacheKey]]);
+            hintLevel.current += 1;
+            setActiveTab("hints");
+            return;
+        }
+
+        // 3. AI MENTOR: Call Gemini for algorithmic/logic progression
         startGeneratingHint(async () => {
             try {
                 setActiveTab("hints");
@@ -397,20 +412,17 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         level: hintLevel.current 
                     };
                     
-                    // Increment and cache
-                    if (normalized === lastNormalizedCode.current) {
-                        hintLevel.current += 1;
-                    }
-                    
-                    const cacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
-                    hintCache.current[cacheKey] = newHint;
+                    // Cache and increment
+                    const currentCacheKey = `${problem.id}-${language}-${normalized}-${hintLevel.current}`;
+                    hintCache.current[currentCacheKey] = newHint;
+                    hintLevel.current += 1;
                     
                     setHints(prev => [...prev, newHint]);
                 }
             } catch (error: any) {
                 toast({
                     variant: "destructive",
-                    title: "Hint Unavailable",
+                    title: "Mentor Unavailable",
                     description: "AI mentor is temporarily busy.",
                 });
             }
@@ -565,7 +577,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                             <ScrollArea className="flex-1 p-4">
                                 <div className="space-y-4">
                                     {hints.length === 0 && !isGeneratingHint && (
-                                        <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60"><Lightbulb className="w-8 h-8" /><p>Need some help? Get step-by-step logic guidance.</p></div>
+                                        <div className="flex flex-col items-center justify-center h-32 gap-3 text-center text-muted-foreground opacity-60"><Lightbulb className="w-8 h-8" /><p>Need some help? Get progressive logic guidance.</p></div>
                                     )}
                                     {hints.map((hint, idx) => (
                                         <div key={idx} className={cn("p-3 rounded-lg border flex gap-3 animate-in slide-in-from-bottom-2", getHintStyles(hint.category))}>
