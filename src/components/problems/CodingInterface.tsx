@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
@@ -157,7 +158,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
         const pairs: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
         const quotesStack: {char: string, line: number}[] = [];
 
-        // 1. Structural Balancing
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             for (let j = 0; j < line.length; j++) {
@@ -205,7 +205,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             };
         }
 
-        // 2. Language-specific Semicolon detection (Java, C++, JS)
         if (['java', 'cpp', 'javascript'].includes(lang)) {
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
@@ -229,7 +228,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             }
         }
 
-        // 3. Typo Detection
         const dictionary = DICTIONARIES[lang] || [];
         for (let i = 0; i < lines.length; i++) {
             const lineText = lines[i].trim();
@@ -237,7 +235,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
             const rawWords = lineText.split(/[^a-zA-Z0-9_.]/).filter(w => w.length > 2);
             for (const word of rawWords) {
-                // Check full word (including dotted accessors like System.out.printlnn)
                 const correction = findCorrection(word, dictionary);
                 if (correction && correction !== word) {
                     return {
@@ -247,7 +244,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                     };
                 }
 
-                // If it's a dotted string, check parts individually
                 if (word.includes('.')) {
                     const parts = word.split('.');
                     for (const part of parts) {
@@ -265,7 +261,6 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
             }
         }
 
-        // 4. Common API Misuse Checks (Java)
         if (lang === 'java') {
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];

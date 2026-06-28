@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { problems } from "@/lib/problems";
 import { ArrowRight, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -30,28 +31,27 @@ export default function ProblemsPage() {
 
   return (
     <div className="container mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-8 font-headline">Practice Problems</h1>
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="flex flex-col gap-2 mb-8">
+        <h1 className="text-3xl font-bold font-headline">Practice Problems</h1>
+        <p className="text-muted-foreground">Master your coding skills with our curated set of practice problems.</p>
+      </div>
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {problems.map((problem) => (
-          <Card key={problem.id} className="flex flex-col h-full hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <div className="flex justify-between items-start">
-                <CardTitle className="line-clamp-1">{problem.title}</CardTitle>
+          <Card key={problem.id} className="flex flex-col h-full hover:shadow-lg transition-shadow group border-none bg-card shadow-sm">
+            <CardHeader className="flex-grow pb-4">
+              <div className="flex flex-col gap-3">
                 <Badge 
                   variant={problem.difficulty === 'Easy' ? 'secondary' : problem.difficulty === 'Medium' ? 'default' : 'destructive'}
-                  className={problem.difficulty === 'Medium' ? 'bg-amber-500 text-white' : ''}
+                  className={problem.difficulty === 'Medium' ? 'bg-amber-500 text-white w-fit' : 'w-fit'}
                 >
                   {problem.difficulty}
                 </Badge>
+                <CardTitle className="text-lg font-bold leading-tight group-hover:text-primary transition-colors">
+                    {problem.title}
+                </CardTitle>
               </div>
             </CardHeader>
-            <CardContent className="flex-grow">
-              <div 
-                className="prose prose-sm text-muted-foreground max-w-none line-clamp-4 overflow-hidden"
-                dangerouslySetInnerHTML={{ __html: problem.description }} 
-              />
-            </CardContent>
-            <CardFooter>
+            <CardFooter className="pt-0">
                 <Button asChild className="w-full">
                     <Link href={`/problems/${problem.id}`}>
                         Solve Problem <ArrowRight className="ml-2 h-4 w-4" />
