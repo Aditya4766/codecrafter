@@ -515,7 +515,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
 
     return (
         <div className="grid md:grid-cols-2 gap-4 p-4 h-[calc(100vh-4rem)] bg-background">
-            <Card className="flex flex-col border-none shadow-md overflow-hidden bg-card">
+            <Card className="flex flex-col border-none shadow-md bg-card">
                 <ScrollArea className="flex-1">
                     <CardContent className="p-6">
                         <div className="flex items-center gap-2 mb-4">
@@ -526,7 +526,7 @@ export default function CodingInterface({ problem }: { problem: Problem }) {
                         </div>
                         <h2 className="text-3xl font-bold mb-4 font-headline">{problem.title}</h2>
                         <div
-                            className="prose prose-sm dark:prose-invert max-w-none font-body leading-relaxed"
+                            className="prose prose-sm dark:prose-invert max-w-none font-body leading-relaxed whitespace-normal break-words prose-pre:whitespace-pre-wrap"
                             dangerouslySetInnerHTML={{ __html: problem.description }}
                         />
                     </CardContent>

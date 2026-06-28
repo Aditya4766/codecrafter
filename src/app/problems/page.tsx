@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect } from 'react';
@@ -48,8 +47,8 @@ export default function ProblemsPage() {
             </CardHeader>
             <CardContent className="flex-grow">
               <div 
-                className="prose prose-sm text-muted-foreground max-w-none max-h-24 overflow-hidden mask-fade-to-bottom"
-                dangerouslySetInnerHTML={{ __html: problem.description.split('<h3')[0] }} 
+                className="prose prose-sm text-muted-foreground max-w-none break-words whitespace-normal prose-pre:whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: problem.description }} 
               />
             </CardContent>
             <CardFooter>
@@ -62,11 +61,6 @@ export default function ProblemsPage() {
           </Card>
         ))}
       </div>
-      <style jsx>{`
-        .mask-fade-to-bottom {
-          mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
-        }
-      `}</style>
     </div>
   );
 }
